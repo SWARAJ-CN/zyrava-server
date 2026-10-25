@@ -40,3 +40,16 @@ export const registerLimiter = rateLimit({
   legacyHeaders: false,
   message: message("Too many accounts created from this network. Try later."),
 });
+
+/**
+ * Listening history is written by the app as it plays, so the ceiling is per
+ * account rather than per network: a shared family connection can still stream.
+ */
+export const historyLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 30,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  keyGenerator: (req) => req.userId ?? req.ip,
+  message: message("Too many history writes at once. The app will catch up."),
+});

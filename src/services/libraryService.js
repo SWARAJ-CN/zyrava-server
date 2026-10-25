@@ -16,7 +16,7 @@ const RECENT = { createdAt: -1, _id: -1 };
 const duplicate = (error) => error?.code === 11000;
 
 /** Subdocuments can leave optional fields unset — answer with the app's shape. */
-function toSong(song) {
+export function toSong(song) {
   return {
     id: song.id,
     title: song.title,

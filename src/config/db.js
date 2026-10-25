@@ -4,6 +4,8 @@ import { User } from "../models/User.js";
 import { Session } from "../models/Session.js";
 import { LikedSong } from "../models/LikedSong.js";
 import { Playlist } from "../models/Playlist.js";
+import { HistoryEvent } from "../models/historyEvent.js";
+import { KnownSong } from "../models/knownSong.js";
 
 /**
  * One pooled connection for the whole process. Render's free instance is
@@ -31,7 +33,14 @@ export async function connectDb() {
 
   // Unique + TTL indexes are part of the contract, not an afterthought.
   if (manageIndexes) {
-    await Promise.all([User.init(), Session.init(), LikedSong.init(), Playlist.init()]);
+    await Promise.all([
+      User.init(),
+      Session.init(),
+      LikedSong.init(),
+      Playlist.init(),
+      HistoryEvent.init(),
+      KnownSong.init(),
+    ]);
   }
   return mongoose.connection;
 }

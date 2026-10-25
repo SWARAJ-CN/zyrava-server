@@ -14,7 +14,7 @@ export const MAX_SONGS_PER_PLAYLIST = 500;
 export const MAX_SONGS_PER_REQUEST = 15;
 
 /** A track as the app knows it; only id and title are load-bearing. */
-const songSchema = z.object({
+export const songSchema = z.object({
   id: z.string().trim().min(1, "The catalogue id is missing.").max(64),
   title: z.string().trim().min(1, "Give the track a title.").max(300),
   artist: z.string().trim().max(300).optional().default(""),
