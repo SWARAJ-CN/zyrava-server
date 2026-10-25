@@ -46,6 +46,12 @@ app.use("/api/library", express.json({ limit: "64kb", strict: true }));
 app.use(express.json({ limit: "16kb", strict: true }));
 app.use(cookieParser());
 
+// Render's service URL is browsable, so `/` answers like `/api` rather than
+// falling through to notFound and looking like a crashed deployment.
+app.get("/", (req, res) => {
+  res.json({ name: "ZYRAVA API", version: 1, status: "ok" });
+});
+
 // Health checks stay outside the limiter for uptime monitors.
 app.get("/health", (req, res) => {
   const db = dbStatus();

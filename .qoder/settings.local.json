@@ -206,7 +206,18 @@
       "Bash(ls /home/kali/ZYRAVA/client 2>/dev/null || ls /home/kali/ZYRAVA)",
       "Read(//home/kali/ZYRAVA/client/**)",
       "Bash(ls /home/kali/ZYRAVA/client/next.config* 2>/dev/null; ls /home/kali/ZYRAVA/next.config* 2>/dev/null)",
-      "Bash(grep -o '\"next\": *\"[^\"]*\"' /home/kali/ZYRAVA/client/package.json; grep -rn \"saavncdn\\\\|next/image\" /home/kali/ZYRAVA/client --include=\"*.tsx\" --include=\"*.ts\" -l | grep -v node_modules | head -20)"
+      "Bash(grep -o '\"next\": *\"[^\"]*\"' /home/kali/ZYRAVA/client/package.json; grep -rn \"saavncdn\\\\|next/image\" /home/kali/ZYRAVA/client --include=\"*.tsx\" --include=\"*.ts\" -l | grep -v node_modules | head -20)",
+      "Bash(ls /home/kali/ZYRAVA/server/backend; echo \"---\"; ls /home/kali/ZYRAVA/server)",
+      "Read(//home/kali/ZYRAVA/server/**)",
+      "Bash(find /home/kali/ZYRAVA/server/backend/src -type f | head -50; echo \"---PKG---\"; cat /home/kali/ZYRAVA/server/backend/package.json)",
+      "Bash(cd /home/kali/ZYRAVA/server/backend && for p in / /health /api /api/auth/me; do printf \"%-16s -> \" \"$p\"; curl -s -o /tmp/o -w \"%{http_code}\" \"https://zyrava-server.onrender.com$p\"; printf \"  %s\\\\n\" \"$\\(head -c 200 /tmp/o\\)\"; done)",
+      "Bash(cd /home/kali/ZYRAVA/server/backend && for o in \"http://localhost:3000\" \"https://zyrava-client.onrender.com\" \"https://zyrava.vercel.app\"; do printf \"%-38s -> \" \"$o\"; curl -s -D- -o /dev/null -H \"Origin: $o\" \"https://zyrava-server.onrender.com/health\" | grep -i \"access-control-allow-origin\" || echo \"NO ACAO HEADER \\(blocked\\)\"; done)",
+      "Bash(cd /home/kali/ZYRAVA/client && grep -rn \"onrender\\\\|API_BASE\\\\|NEXT_PUBLIC_API\" --include=\"*.ts\" --include=\"*.tsx\" --include=\"*.mjs\" --include=\"*.js\" app lib components 2>/dev/null | grep -v node_modules | head -20; echo \"---envfiles---\"; ls -a | grep -i env)",
+      "Bash(cd /home/kali/ZYRAVA/client && grep -c \"\" .env && grep -o \"^NEXT_PUBLIC_API_URL=.*\" .env; echo \"--- example ---\"; cat .env.example)",
+      "Bash(cd /home/kali/ZYRAVA/server/backend && node --check src/app.js && echo \"syntax ok\"; ls -a | grep -i env)",
+      "Bash(cd /home/kali/ZYRAVA/server/backend && PORT=5099 node src/server.js > /tmp/zyrava.log 2>&1 &\nsleep 4; for p in / /health /api /nope; do printf \"%-10s -> \" \"$p\"; code=$\\(curl -s -o /tmp/r -w \"%{http_code}\" \"http://localhost:5099$p\"\\); echo \"$code $\\(head -c 90 /tmp/r\\)\"; done; echo \"--- log ---\"; tail -5 /tmp/zyrava.log)",
+      "Bash(cd /home/kali/ZYRAVA/server/backend && PORT=5099 node src/server.js 2>&1 | tail -20)",
+      "Bash(sleep 6; for p in / /health /api /nope; do printf \"%-10s -> \" \"$p\"; curl -s -o /tmp/r -w \"%{http_code} \" \"http://localhost:5099$p\"; head -c 90 /tmp/r 2>/dev/null; echo; done)"
     ]
   }
 }
