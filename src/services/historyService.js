@@ -18,8 +18,10 @@ const MS_MINUTE = 60 * 1000;
 const MS_DAY = 24 * 60 * MS_MINUTE;
 const WEEK_MS = 7 * MS_DAY;
 
-/** Kinds that count as a listen; a skip is its own column and weights carry the rest. */
-const PLAYED = ["play", "complete", "deep", "like", "save", "playlist_add"];
+/** Kinds that count as a listen; a skip is its own column and weights carry the rest.
+ *  Deliberately excludes likes/saves: the client reads `plays` as "how often this was
+ *  heard" (fatigue, on-repeat) and the acts that aren't listens live only in `score`. */
+const PLAYED = ["play", "complete", "deep"];
 
 const duplicate = (error) => error?.code === 11000;
 
