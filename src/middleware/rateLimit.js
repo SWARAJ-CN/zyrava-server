@@ -53,3 +53,16 @@ export const historyLimiter = rateLimit({
   keyGenerator: (req) => req.userId ?? req.ip,
   message: message("Too many history writes at once. The app will catch up."),
 });
+
+/**
+ * Arrival is recorded once per page load, so a person never nears this. It
+ * exists so an open redirect or a curious script cannot turn the endpoint into
+ * a row factory.
+ */
+export const visitLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 12,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: message("Too many arrivals from here."),
+});
