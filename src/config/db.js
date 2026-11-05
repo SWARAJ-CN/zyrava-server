@@ -6,6 +6,9 @@ import { LikedSong } from "../models/LikedSong.js";
 import { Playlist } from "../models/Playlist.js";
 import { HistoryEvent } from "../models/historyEvent.js";
 import { KnownSong } from "../models/knownSong.js";
+import { ChatRequest } from "../models/ChatRequest.js";
+import { Conversation } from "../models/Conversation.js";
+import { Message } from "../models/Message.js";
 import { AppError } from "../utils/http.js";
 
 /**
@@ -41,6 +44,9 @@ export async function connectDb() {
       Playlist.init(),
       HistoryEvent.init(),
       KnownSong.init(),
+      ChatRequest.init(),
+      Conversation.init(),
+      Message.init(),
     ]);
   }
   return mongoose.connection;

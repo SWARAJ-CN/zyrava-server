@@ -66,3 +66,41 @@ export const visitLimiter = rateLimit({
   legacyHeaders: false,
   message: message("Too many arrivals from here."),
 });
+
+/*
+ * Community ceilings are per account, not per network: a shared connection
+ * holds a whole family, and none of them should be punished for one member's
+ * typing. Reads are generous because opening a thread costs several calls.
+ */
+const accountKey = (req) => req.userId ?? req.ip;
+
+export const chatReadLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 90,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  keyGenerator: accountKey,
+  message: message("You are refreshing the community a lot. Give it a moment."),
+});
+
+export const chatSendLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 40,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  keyGenerator: accountKey,
+  message: message("Slow down — that is a lot of messages in a minute."),
+});
+
+/**
+ * Asking strangers to chat is the one community action worth throttling hard:
+ * it is how spam starts, and nobody genuinely sends many of these in a row.
+ */
+export const chatRequestLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 15,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  keyGenerator: accountKey,
+  message: message("You have sent enough requests for now. Try again later."),
+});

@@ -18,6 +18,8 @@ const userSchema = new mongoose.Schema(
     },
     passwordHash: { type: String, required: true, select: false },
     lastLoginAt: { type: Date },
+    /** Updated by the realtime layer, so offline profiles still show a pulse. */
+    lastSeenAt: { type: Date, index: true },
   },
   { timestamps: true }
 );

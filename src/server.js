@@ -1,11 +1,18 @@
+import { createServer } from "node:http";
 import { app } from "./app.js";
 import { env } from "./config/env.js";
 import { connectDb, disconnectDb } from "./config/db.js";
+import { attachRealtime } from "./realtime/io.js";
 
 async function start() {
   await connectDb();
 
-  const server = app.listen(env.port, () => {
+  // One HTTP server for both halves of the app: the REST API and, riding on
+  // the same port, the Socket.IO endpoint the community live-updates.
+  const server = createServer(app);
+  const io = attachRealtime(server);
+
+  server.listen(env.port, () => {
     console.log(`[zyrava] API listening on :${env.port} (${env.isProd ? "production" : "development"})`);
   });
 
@@ -16,6 +23,8 @@ async function start() {
   const shutdown = async (signal) => {
     console.log(`[zyrava] ${signal} received — draining`);
     server.close(async () => {
+      // Last, so the websocket only goes away once HTTP has stopped accepting.
+      io.close();
       await disconnectDb();
       process.exit(0);
     });
