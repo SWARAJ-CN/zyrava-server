@@ -3,6 +3,8 @@ import helmet from "helmet";
 import cors from "cors";
 import compression from "compression";
 import cookieParser from "cookie-parser";
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { env } from "./config/env.js";
 import { dbStatus } from "./config/db.js";
 import { routes } from "./routes/index.js";
@@ -33,7 +35,7 @@ app.use(
       return callback(new AppError(403, "Origin not allowed."));
     },
     credentials: true,
-    methods: ["GET", "POST", "OPTIONS"],
+    methods: ["GET", "POST", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token"],
     maxAge: 86_400,
   })
@@ -64,6 +66,16 @@ app.get("/health", (req, res) => {
 
 app.use(globalLimiter);
 app.use("/api", routes);
+
+// Optional single-deployment mode: build the admin SPA with
+// VITE_BASE=/admin/ and point ADMIN_CLIENT_DIST at its dist folder.
+const adminDist = process.env.ADMIN_CLIENT_DIST?.trim();
+if (adminDist && existsSync(path.join(adminDist, "index.html"))) {
+  app.use("/admin", express.static(adminDist, { index: false, maxAge: "1h" }));
+  app.get(["/admin", "/admin/*"], (req, res) => {
+    res.sendFile(path.join(adminDist, "index.html"));
+  });
+}
 
 app.use(notFound);
 app.use(errorHandler);

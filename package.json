@@ -25,6 +25,7 @@
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.6.0",
+    "ua-parser-js": "^2.0.10",
     "zod": "^3.23.8"
   }
 }

@@ -6,6 +6,7 @@ import { LikedSong } from "../models/LikedSong.js";
 import { Playlist } from "../models/Playlist.js";
 import { HistoryEvent } from "../models/historyEvent.js";
 import { KnownSong } from "../models/knownSong.js";
+import { AppError } from "../utils/http.js";
 
 /**
  * One pooled connection for the whole process. Render's free instance is
@@ -47,6 +48,15 @@ export async function connectDb() {
 
 export function dbStatus() {
   return mongoose.connection.readyState === 1 ? "up" : "down";
+}
+
+/** The raw driver handle used by the read-only admin aggregations. */
+export function database() {
+  const db = mongoose.connection.db;
+  if (!db || dbStatus() !== "up") {
+    throw new AppError(503, "The database is not connected yet.");
+  }
+  return db;
 }
 
 export async function disconnectDb() {
