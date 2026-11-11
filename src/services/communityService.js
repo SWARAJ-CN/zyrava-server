@@ -187,8 +187,11 @@ export async function sendRequest(viewerId, targetId) {
   if (asId(viewerId) === asId(targetId)) {
     throw new AppError(400, "You cannot send a chat request to yourself.");
   }
-  const target = await User.findById(targetId).select("name lastSeenAt").lean();
-  if (!target) throw new AppError(404, "That listener no longer exists.");
+  const [target, viewer] = await Promise.all([
+    User.findById(targetId).select("name lastSeenAt").lean(),
+    User.findById(viewerId).select("name lastSeenAt").lean(),
+  ]);
+  if (!target || !viewer) throw new AppError(404, "That listener no longer exists.");
 
   const existingConversation = await Conversation.findOne({
     pairKey: pairKey(viewerId, targetId),
@@ -197,6 +200,8 @@ export async function sendRequest(viewerId, targetId) {
     return {
       status: "accepted",
       conversation: await conversationSummary(existingConversation, viewerId, target),
+      to: person(target),
+      from: person(viewer),
     };
   }
 
@@ -214,22 +219,33 @@ export async function sendRequest(viewerId, targetId) {
     return {
       status: "accepted",
       conversation: await conversationSummary(conversation, viewerId, target),
+      to: person(target),
+      from: person(viewer),
     };
   }
 
   const forward = await ChatRequest.findOne({ from: viewerId, to: targetId });
   if (forward) {
-    if (forward.status === "pending") {
-      return { status: "pending", request: requestItem(forward, target, "outgoing") };
+    if (forward.status !== "pending") {
+      forward.status = "pending";
+      forward.respondedAt = null;
+      await forward.save();
     }
-    forward.status = "pending";
-    forward.respondedAt = null;
-    await forward.save();
-    return { status: "pending", request: requestItem(forward, target, "outgoing") };
+    return {
+      status: "pending",
+      request: requestItem(forward, target, "outgoing"),
+      to: person(target),
+      from: person(viewer),
+    };
   }
 
   const request = await ChatRequest.create({ from: viewerId, to: targetId });
-  return { status: "pending", request: requestItem(request, target, "outgoing") };
+  return {
+    status: "pending",
+    request: requestItem(request, target, "outgoing"),
+    to: person(target),
+    from: person(viewer),
+  };
 }
 
 export async function respondRequest(viewerId, requestId, accept) {
@@ -240,21 +256,32 @@ export async function respondRequest(viewerId, requestId, accept) {
   request.respondedAt = new Date();
   await request.save();
 
-  if (!accept) {
-    return { status: "declined", conversation: null, from: asId(request.from) };
-  }
-
   const [viewer, requester] = await Promise.all([
     User.findById(viewerId).select("name lastSeenAt").lean(),
     User.findById(request.from).select("name lastSeenAt").lean(),
   ]);
   if (!viewer || !requester) throw new AppError(404, "That listener no longer exists.");
 
+  if (!accept) {
+    return {
+      status: "declined",
+      conversation: null,
+      from: asId(request.from),
+      to: asId(viewerId),
+      requester: person(requester),
+      viewer: person(viewer),
+    };
+  }
+
   const conversation = await ensureConversation(viewerId, request.from);
   return {
     status: "accepted",
     conversation: await conversationSummary(conversation, viewerId, requester),
+    forRequester: await conversationSummary(conversation, request.from, viewer),
     from: asId(request.from),
+    to: asId(viewerId),
+    requester: person(requester),
+    viewer: person(viewer),
   };
 }
 
@@ -369,6 +396,14 @@ export async function sendMessage(viewerId, conversationId, text, clientId = "")
 
   return {
     message: messageItem(message, viewerId),
+    raw: {
+      id: asId(message._id),
+      conversationId: asId(message.conversation),
+      from: asId(message.from),
+      text: message.text,
+      clientId: message.clientId ?? "",
+      createdAt: message.createdAt,
+    },
     memberIds: conversation.members.map(asId),
     conversationId: asId(conversation._id),
   };
@@ -405,6 +440,9 @@ export async function summary(viewerId) {
   ]);
   return { unread, requests, online: onlineCount() };
 }
+
+/** Message shape shared by the REST routes and the socket, for every viewer. */
+export { messageItem as toMessageItem };
 
 export async function markSeen(userId) {
   await User.updateOne({ _id: userId }, { $set: { lastSeenAt: new Date() } });

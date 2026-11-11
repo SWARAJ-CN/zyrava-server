@@ -1,5 +1,6 @@
 import { asyncHandler } from "../utils/http.js";
 import * as historyService from "../services/historyService.js";
+import { emitToUser } from "../realtime/rooms.js";
 
 /**
  * Both handlers work on `req.userId` alone, so one account can never read or
@@ -16,5 +17,8 @@ export const state = asyncHandler(async (req, res) => {
 });
 
 export const clear = asyncHandler(async (req, res) => {
-  res.json(await historyService.clearAll(req.userId));
+  const result = await historyService.clearAll(req.userId);
+  // The recommendations built on this log just went stale on every live tab.
+  emitToUser(req.userId, "history:changed", { at: new Date().toISOString() });
+  res.json(result);
 });
