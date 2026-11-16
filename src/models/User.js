@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { appliedCustomizationSchema } from "./customizationFields.js";
 
 const userSchema = new mongoose.Schema(
   {
@@ -17,6 +18,7 @@ const userSchema = new mongoose.Schema(
       index: { unique: true, sparse: true },
     },
     passwordHash: { type: String, required: true, select: false },
+    customization: { type: appliedCustomizationSchema, default: null },
     lastLoginAt: { type: Date },
     /** Updated by the realtime layer, so offline profiles still show a pulse. */
     lastSeenAt: { type: Date, index: true },

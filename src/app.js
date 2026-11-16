@@ -10,7 +10,8 @@ import { dbStatus } from "./config/db.js";
 import { routes } from "./routes/index.js";
 import { globalLimiter } from "./middleware/rateLimit.js";
 import { errorHandler, notFound } from "./middleware/errorHandler.js";
-import { AppError } from "./utils/http.js";
+import { AppError, asyncHandler } from "./utils/http.js";
+import { receiveWebhook } from "./services/customizationPaymentService.js";
 
 export const app = express();
 
@@ -41,6 +42,12 @@ app.use(
   })
 );
 
+// Signature verification requires the exact raw bytes, before express.json().
+app.post("/api/customization/payments/webhook", express.raw({ type: "application/json", limit: "64kb" }),
+  asyncHandler(async (req, res) => {
+    await receiveWebhook(req.body, req.get("X-Razorpay-Signature"));
+    res.json({ received: true });
+  }));
 app.use(compression());
 // A library write carries whole song snapshots, so that router gets a higher
 // body ceiling than the auth endpoints; its routes still cap tracks per call.

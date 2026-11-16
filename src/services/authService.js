@@ -11,6 +11,8 @@ import {
 import { normalizePhone } from "../validators/auth.js";
 import { accountExperience } from "./accountExperience.js";
 
+import { publicCustomization } from "../models/customizationFields.js";
+
 const BCRYPT_ROUNDS = 10;
 /** A real hash so a missing account costs the same compare as a wrong password. */
 const DUMMY_HASH = bcrypt.hashSync("zyrava-invalid-password", BCRYPT_ROUNDS);
@@ -23,6 +25,7 @@ function publicUser(user) {
     phone: user.phone ?? null,
     createdAt: user.createdAt,
     experience: accountExperience(user),
+    customization: accountExperience(user) === "standard" ? publicCustomization(user.customization) : null,
   };
 }
 
@@ -111,7 +114,7 @@ export async function revokeSession(refreshToken) {
 }
 
 export async function findUser(userId) {
-  const user = await User.findById(userId).select("name email phone createdAt").lean();
+  const user = await User.findById(userId).select("name email phone createdAt customization").lean();
   if (!user) throw new AppError(404, "Account not found.");
   return publicUser(user);
 }

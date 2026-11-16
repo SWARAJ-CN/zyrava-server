@@ -18,6 +18,10 @@ if (isProd && (accessSecret.length < 32 || refreshSecret.length < 32)) {
 
 export const env = {
   isProd,
+  paymentSettingsEncryptionKey: process.env.PAYMENT_SETTINGS_ENCRYPTION_KEY?.trim(),
+  razorpayKeyId: process.env.RAZORPAY_KEY_ID?.trim(),
+  razorpayKeySecret: process.env.RAZORPAY_KEY_SECRET?.trim(),
+  razorpayWebhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET?.trim(),
   port: Number(process.env.PORT ?? 5000),
   mongoUri: required("MONGO_URI"),
   accessSecret,

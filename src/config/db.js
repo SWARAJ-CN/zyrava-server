@@ -1,5 +1,8 @@
 import mongoose from "mongoose";
 import { env } from "./env.js";
+import { PaymentSettings } from "../models/PaymentSettings.js";
+import { CustomizationPurchase } from "../models/CustomizationPurchase.js";
+import { Customization } from "../models/Customization.js";
 import { User } from "../models/User.js";
 import { Session } from "../models/Session.js";
 import { LikedSong } from "../models/LikedSong.js";
@@ -39,6 +42,9 @@ export async function connectDb() {
   if (manageIndexes) {
     await Promise.all([
       User.init(),
+      Customization.init(),
+      CustomizationPurchase.init(),
+      PaymentSettings.init(),
       Session.init(),
       LikedSong.init(),
       Playlist.init(),

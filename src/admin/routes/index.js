@@ -7,6 +7,7 @@ import { visitsRoutes } from "./visits.js";
 import { audienceRoutes } from "./audience.js";
 import { contentRoutes } from "./content.js";
 import { sessionsRoutes } from "./sessions.js";
+import { paymentsRoutes } from "./payments.js";
 import { systemRoutes } from "./system.js";
 
 export const adminRoutes = Router();
@@ -20,3 +21,4 @@ adminRoutes.use("/audience", audienceRoutes);
 adminRoutes.use("/content", contentRoutes);
 adminRoutes.use("/sessions", sessionsRoutes);
 adminRoutes.use("/system", systemRoutes);
+adminRoutes.use("/payments", paymentsRoutes);
