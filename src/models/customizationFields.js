@@ -3,6 +3,8 @@ import { publicCustomizationPerson } from "../utils/contactPrivacy.js";
 
 export const customizationConfigSchema = new mongoose.Schema(
   {
+    template: { type: String, enum: ["partner", "birthday"] },
+    wishMessage: { type: String, maxlength: 280 },
     title: { type: String, required: true, maxlength: 60 },
     accent: { type: String, required: true },
     background: { type: String, required: true },

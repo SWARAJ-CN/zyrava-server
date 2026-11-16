@@ -6,6 +6,13 @@ export const ANIMATION_IDS = [
   "couples-2",
   "couples-3",
   "couples-4",
+  "moments-1",
+  "moments-2",
+  "moments-3",
+  "moments-4",
+  "moments-5",
+  "moments-6",
+  "moments-7",
 ];
 const color = z
   .string()
@@ -25,6 +32,8 @@ const text = (length) =>
     );
 export const customizationConfig = z
   .object({
+    template: z.enum(["partner", "birthday"]).optional(),
+    wishMessage: text(280).optional(),
     title: text(60).pipe(z.string().min(1)),
     accent: color,
     background: color,

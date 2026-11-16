@@ -198,3 +198,11 @@ The web/PWA sidebar includes **Payments** (`/payments`), also linked from Custom
 - Admin-only `GET /api/admin/users/:id/payments?page=1&limit=10`: selected user's payment history.
 
 Both endpoints return `{ items, total, page, pages, limit }`, use a maximum page size of 50, stable newest-first ordering, and `Cache-Control: no-store`. They read stored payment states without creating/capturing payments or applying designs. Purpose is stored on new purchases and derived for older records. History survives theme removal or expiry; the saved/sent label describes fulfillment at payment time, not whether the theme is currently active. Credential versions, keys, and private design configuration are never included in history responses.
+
+### Partner and birthday templates
+
+Customize → Create a design now includes **For partner** and **Birthday** occasion tabs. Switching tabs keeps each draft's edits for the current session. Both use the same recipient search, payment, preview, acceptance, removal and expiry flow. Birthday starts with a gold/plum palette, birthday animations, a birthday loading message, and a one-day duration measured from acceptance (editable; this is not a scheduled delivery).
+
+The optional config fields `template` (`partner` or `birthday`) and `wishMessage` (up to 280 plain-text characters) are stored in purchases, design proposals and accepted user snapshots. The wish appears in the recipient's home header and preview; `loadingMessage` still controls the loading screen. Older designs without these fields remain valid. Paid edits still replace the existing creator/recipient proposal and never modify an accepted gift without another acceptance.
+
+Seven new local assets (`moments-1` through `moments-7`) join the original four couples animations. All eleven can be selected independently for loading, header and lyrics, in either occasion. Together, Birthday wishes, Dance party and Under the stars presets fill all three animation slots. Files and source URLs are documented in the web client's `public/animations/README.md`. Deploy both backend and web client so the API animation allowlist and bundled files remain in sync. The reserved personal experience is unchanged.

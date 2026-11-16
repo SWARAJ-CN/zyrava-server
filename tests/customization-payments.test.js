@@ -437,3 +437,41 @@ test("admin status sync does not capture an authorization", async (t) => {
   assert.equal(f.purchases[0].paymentStatus, "authorized");
   assert.equal(f.designs.length, 0);
 });
+
+test("birthday wishes and new animation selections survive paid gift fulfillment and recipient acceptance", async (t) => {
+  const f = fixture(t);
+  const input = f.input(b);
+  input.config = customizationConfig.parse({
+    ...input.config,
+    template: "birthday",
+    title: "Happy birthday, Jamie!",
+    wishMessage: "A little music and a lot of love. Happy birthday!",
+    loadingAnimation: "moments-7",
+    headerAnimation: "moments-7",
+    lyricsAnimation: "moments-1",
+    durationMinutes: 1440,
+  });
+  const purchase = await payments.createOrder(a, input);
+  assert.deepEqual(f.purchases[0].config, input.config);
+  assert.equal(f.designs.length, 0);
+  f.paid(purchase);
+  await payments.checkPayment(a, purchase.id);
+  const incoming = (await customization.readCustomizations(b)).incoming[0];
+  assert.deepEqual(incoming.config, input.config);
+  const accepted = await customization.respondCustomization(
+    b,
+    incoming.id,
+    true,
+    incoming.updatedAt.toISOString(),
+  );
+  assert.deepEqual(accepted.active.config, input.config);
+  assert.equal(
+    +accepted.active.expiresAt - +accepted.active.appliedAt,
+    86400000,
+  );
+  assert.equal(razorpay.createOrder.mock.calls.length, 1);
+  // The recipient can still remove their birthday gift without another charge.
+  await customization.removeCustomization(b, incoming.id);
+  assert.equal((await customization.readCustomizations(b)).active, null);
+  assert.equal(f.purchases[0].status, "fulfilled");
+});

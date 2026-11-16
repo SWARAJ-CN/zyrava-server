@@ -352,3 +352,31 @@ test("short, missing, and legacy snapshot contacts are masked at the response bo
   assert.equal(snapshot.creator.email, "re***t@example.com");
   assert.equal(snapshot.creator.phone, "•••• 210");
 });
+
+test("occasion templates accept all bundled animations, preserve legacy designs and validate wishes", () => {
+  assert.equal(customizationConfig.parse(config).template, undefined);
+  for (let i = 1; i <= 7; i++) {
+    assert.equal(
+      customizationConfig.safeParse({
+        ...config,
+        template: "birthday",
+        wishMessage: "Happy birthday!",
+        loadingAnimation: `moments-${i}`,
+        headerAnimation: `moments-${i}`,
+        lyricsAnimation: `moments-${i}`,
+      }).success,
+      true,
+    );
+  }
+  for (const changed of [
+    { template: "unknown" },
+    { wishMessage: "x".repeat(281) },
+    { wishMessage: "hello\nworld" },
+    { loadingAnimation: "moments-8" },
+  ]) {
+    assert.equal(
+      customizationConfig.safeParse({ ...config, ...changed }).success,
+      false,
+    );
+  }
+});
