@@ -9,6 +9,7 @@ import {
   signAccessToken,
 } from "../utils/tokens.js";
 import { normalizePhone } from "../validators/auth.js";
+import { accountExperience } from "./accountExperience.js";
 
 const BCRYPT_ROUNDS = 10;
 /** A real hash so a missing account costs the same compare as a wrong password. */
@@ -21,6 +22,7 @@ function publicUser(user) {
     email: user.email ?? null,
     phone: user.phone ?? null,
     createdAt: user.createdAt,
+    experience: accountExperience(user),
   };
 }
 

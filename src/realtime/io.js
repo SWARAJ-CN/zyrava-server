@@ -6,6 +6,7 @@ import { addSocket, removeSocket } from "./presence.js";
 import { setIo, userRoom } from "./rooms.js";
 import { presenceChanged, presenceSnapshot } from "./emit.js";
 import { registerRealtimeHandlers } from "./handlers.js";
+import { assertCommunityUser } from "../services/accountExperience.js";
 
 /**
  * Socket.IO rides the same HTTP server as the REST API, so the deployment keeps
@@ -43,10 +44,12 @@ export function attachRealtime(httpServer) {
    * handshake rather than a cookie — the same token the REST layer accepts,
    * which means signing out or letting it expire also ends the socket.
    */
-  io.use((socket, next) => {
+  io.use(async (socket, next) => {
     const token = String(socket.handshake.auth?.token ?? "");
     try {
       socket.data.userId = verifyAccessToken(token).sub;
+      // Reject before joining rooms or adding/broadcasting presence.
+      await assertCommunityUser(socket.data.userId);
     } catch {
       return next(new Error("Unauthorized"));
     }

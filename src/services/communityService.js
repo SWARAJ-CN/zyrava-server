@@ -5,6 +5,7 @@ import { Message } from "../models/Message.js";
 import { User } from "../models/User.js";
 import { AppError } from "../utils/http.js";
 import { isOnline, onlineCount } from "../realtime/presence.js";
+import { communityUserFilter, hiddenCommunityIds } from "./accountExperience.js";
 
 const MAX_MESSAGE = 2000;
 const MAX_PAGE = 40;
@@ -52,7 +53,7 @@ function messageItem(message, viewerId) {
 async function usersByIds(ids) {
   if (!ids.length) return new Map();
   // The connection sanitizes filters, so an operator here is declared trusted.
-  const rows = await User.find({ _id: mongoose.trusted({ $in: ids }) })
+  const rows = await User.find({ _id: mongoose.trusted({ $in: ids }), ...communityUserFilter() })
     .select("name lastSeenAt")
     .lean();
   return new Map(rows.map((row) => [asId(row._id), row]));
@@ -77,6 +78,10 @@ async function assertMember(conversation, userId) {
   if (!conversation.members.map(asId).includes(asId(userId))) {
     throw new AppError(403, "This conversation is not yours.");
   }
+  const visible = await usersByIds(conversation.members);
+  if (visible.size !== conversation.members.length) {
+    throw new AppError(404, "That conversation no longer exists.");
+  }
 }
 
 async function conversationSummary(conversation, viewerId, otherUser, unread = 0) {
@@ -99,7 +104,7 @@ async function conversationSummary(conversation, viewerId, otherUser, unread = 0
 /** People you can ask to chat with, with the current relationship attached. */
 export async function listPeople(viewerId, query = "") {
   // The connection sanitizes filters, so an operator here is declared trusted.
-  const filter = { _id: mongoose.trusted({ $ne: viewerId }) };
+  const filter = { _id: mongoose.trusted({ $ne: viewerId }), ...communityUserFilter() };
   const trimmed = query.trim().slice(0, 80);
   if (trimmed) {
     const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -175,9 +180,11 @@ export async function listRequests(viewerId) {
 
   return {
     incoming: incomingRows
+      .filter((request) => users.has(asId(request.from)))
       .map((request) => requestItem(request, users.get(asId(request.from)), "incoming"))
       .filter((item) => item.user),
     outgoing: outgoingRows
+      .filter((request) => users.has(asId(request.to)))
       .map((request) => requestItem(request, users.get(asId(request.to)), "outgoing"))
       .filter((item) => item.user),
   };
@@ -188,8 +195,8 @@ export async function sendRequest(viewerId, targetId) {
     throw new AppError(400, "You cannot send a chat request to yourself.");
   }
   const [target, viewer] = await Promise.all([
-    User.findById(targetId).select("name lastSeenAt").lean(),
-    User.findById(viewerId).select("name lastSeenAt").lean(),
+    User.findOne({ _id: targetId, ...communityUserFilter() }).select("name lastSeenAt").lean(),
+    User.findOne({ _id: viewerId, ...communityUserFilter() }).select("name lastSeenAt").lean(),
   ]);
   if (!target || !viewer) throw new AppError(404, "That listener no longer exists.");
 
@@ -252,15 +259,15 @@ export async function respondRequest(viewerId, requestId, accept) {
   const request = await ChatRequest.findOne({ _id: requestId, to: viewerId, status: "pending" });
   if (!request) throw new AppError(404, "That request is no longer waiting.");
 
+  const [viewer, requester] = await Promise.all([
+    User.findOne({ _id: viewerId, ...communityUserFilter() }).select("name lastSeenAt").lean(),
+    User.findOne({ _id: request.from, ...communityUserFilter() }).select("name lastSeenAt").lean(),
+  ]);
+  if (!viewer || !requester) throw new AppError(404, "That listener no longer exists.");
+
   request.status = accept ? "accepted" : "declined";
   request.respondedAt = new Date();
   await request.save();
-
-  const [viewer, requester] = await Promise.all([
-    User.findById(viewerId).select("name lastSeenAt").lean(),
-    User.findById(request.from).select("name lastSeenAt").lean(),
-  ]);
-  if (!viewer || !requester) throw new AppError(404, "That listener no longer exists.");
 
   if (!accept) {
     return {
@@ -424,7 +431,10 @@ export async function markRead(viewerId, conversationId) {
 }
 
 export async function unreadTotal(viewerId) {
-  const conversations = await Conversation.find({ members: viewerId }).select("_id").lean();
+  const hidden = await hiddenCommunityIds();
+  const conversations = await Conversation.find({
+    members: mongoose.trusted({ $all: [viewerId], $nin: hidden }),
+  }).select("_id").lean();
   if (!conversations.length) return 0;
   return Message.countDocuments({
     conversation: mongoose.trusted({ $in: conversations.map((conversation) => conversation._id) }),
@@ -434,9 +444,10 @@ export async function unreadTotal(viewerId) {
 }
 
 export async function summary(viewerId) {
+  const hidden = await hiddenCommunityIds();
   const [unread, requests] = await Promise.all([
     unreadTotal(viewerId),
-    ChatRequest.countDocuments({ to: viewerId, status: "pending" }),
+    ChatRequest.countDocuments({ to: viewerId, status: "pending", from: mongoose.trusted({ $nin: hidden }) }),
   ]);
   return { unread, requests, online: onlineCount() };
 }
@@ -451,7 +462,9 @@ export async function markSeen(userId) {
 /** Who should receive an event about this conversation. */
 export async function conversationAudience(conversationId) {
   const conversation = await Conversation.findById(conversationId).select("members").lean();
-  return conversation ? conversation.members.map(asId) : [];
+  if (!conversation) return [];
+  const visible = await usersByIds(conversation.members);
+  return visible.size === conversation.members.length ? conversation.members.map(asId) : [];
 }
 
 /**
@@ -461,12 +474,13 @@ export async function conversationAudience(conversationId) {
 export async function conversationPeers(conversationId, viewerId) {
   const conversation = await Conversation.findById(conversationId).select("members").lean();
   if (!conversation) return [];
+  await assertMember(conversation, viewerId);
   return conversation.members.map(asId).filter((member) => member !== asId(viewerId));
 }
 
 /** A profile by id, in the same shape every other list returns. */
 export async function personView(userId) {
-  const user = await User.findById(userId).select("name lastSeenAt").lean();
+  const user = await User.findOne({ _id: userId, ...communityUserFilter() }).select("name lastSeenAt").lean();
   return user ? person(user) : null;
 }
 
@@ -478,10 +492,13 @@ export async function personView(userId) {
 export async function conversationSummaryFor(viewerId, conversationId) {
   const conversation = await Conversation.findById(conversationId).lean();
   if (!conversation) return null;
+  if (!conversation.members.map(asId).includes(asId(viewerId))) return null;
+  const visible = await usersByIds(conversation.members);
+  if (visible.size !== conversation.members.length) return null;
 
   const otherId = conversation.members.map(asId).find((member) => member !== asId(viewerId));
   if (!otherId) return null;
-  const other = await User.findById(otherId).select("name lastSeenAt").lean();
+  const other = visible.get(otherId);
   if (!other) return null;
 
   const self = new mongoose.Types.ObjectId(asId(viewerId));

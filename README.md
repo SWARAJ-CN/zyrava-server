@@ -97,3 +97,23 @@ this API except for auth.
 - allow Render's egress (or `0.0.0.0/0` while testing)
 - indexes are created by `User.init()` / `Session.init()` on boot
 # zyrava-server
+
+### Account-specific listening experience
+
+`src/services/accountExperience.js` selects `brown-burgundy` only for the normalized
+email `vimitharadottukaya@gmail.com` (verified against the existing account; the
+original `gmil.com` spelling did not match an account).
+All other accounts receive `standard`. Login, refresh and account responses include
+this `experience` value; the web client uses it for the scoped palette and simplified
+navigation. No account data or existing messages are deleted.
+
+The personal account is excluded from community discovery, requests, conversation
+lists, profiles and unread counts. Existing conversation IDs cannot be used to read,
+write, mark read or send typing events involving this account. REST community access
+and socket handshakes are denied for the account, so it cannot appear in online
+presence. Authentication, music, playlists and the library remain available.
+
+Deploy the API and web client together, then refresh the session to load the new
+experience flag. The account email is kept on the server, not in the public client
+bundle. Run `npm test` for policy and community regression checks; these use mocked
+database records and do not change live accounts.

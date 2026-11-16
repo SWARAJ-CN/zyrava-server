@@ -15,11 +15,17 @@ import {
   summarySchema,
 } from "../validators/community.js";
 import * as communityController from "../controllers/communityController.js";
+import { assertCommunityUser } from "../services/accountExperience.js";
+import { asyncHandler } from "../utils/http.js";
 
 export const communityRoutes = Router();
 
 /** Chat belongs to a signed-in listener; there is no public thread. */
 communityRoutes.use(requireAuth);
+communityRoutes.use(asyncHandler(async (req, _res, next) => {
+  await assertCommunityUser(req.userId);
+  next();
+}));
 
 // Writes are POST-only with the verb in the path, the same contract the library
 // router uses, so no CORS method widening and no preflight is needed.
