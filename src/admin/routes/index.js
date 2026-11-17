@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { appearanceAdminRoutes } from "./appearance.js";
 import { requireAdmin } from "../middleware/auth.js";
 import { authRoutes } from "./auth.js";
 import { overviewRoutes } from "./overview.js";
@@ -14,6 +15,7 @@ export const adminRoutes = Router();
 
 adminRoutes.use("/auth", authRoutes);
 adminRoutes.use(requireAdmin);
+adminRoutes.use("/appearance", appearanceAdminRoutes);
 adminRoutes.use("/overview", overviewRoutes);
 adminRoutes.use("/users", usersRoutes);
 adminRoutes.use("/visits", visitsRoutes);

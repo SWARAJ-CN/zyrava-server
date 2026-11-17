@@ -206,3 +206,14 @@ Customize → Create a design now includes **For partner** and **Birthday** occa
 The optional config fields `template` (`partner` or `birthday`) and `wishMessage` (up to 280 plain-text characters) are stored in purchases, design proposals and accepted user snapshots. The wish appears in the recipient's home header and preview; `loadingMessage` still controls the loading screen. Older designs without these fields remain valid. Paid edits still replace the existing creator/recipient proposal and never modify an accepted gift without another acceptance.
 
 Seven new local assets (`moments-1` through `moments-7`) join the original four couples animations. All eleven can be selected independently for loading, header and lyrics, in either occasion. Together, Birthday wishes, Dance party and Under the stars presets fill all three animation slots. Files and source URLs are documented in the web client's `public/animations/README.md`. Deploy both backend and web client so the API animation allowlist and bundled files remain in sync. The reserved personal experience is unchanged.
+
+### Admin Vimitha appearance switch
+
+The admin header's **Vimitha** toggle saves `AppearanceSettings.vimithaThemeEnabled` in MongoDB (enabled by default to preserve the existing experience). Off restores the standard web/PWA appearance for the reserved account, including the home header, colours, player shape, fullscreen lyrics decorations and remembered login/loading visuals. On restores the personal appearance. Other users' themes are unaffected.
+
+This is strictly a presentation setting: `accountExperience()` and community exclusions remain unchanged. Audio Desk, Mixer, Community, EQ, Customize and Payments remain hidden/blocked for the reserved account in both states. The frontend keeps `personalExperience` for account restrictions and uses `personalThemeEnabled` only for visuals.
+
+- Public `GET /api/appearance`: the single boolean only, needed before sign-in. No account or administrator metadata is exposed.
+- Admin-only `GET /api/admin/appearance` and `POST /api/admin/appearance` with `{ "vimithaThemeEnabled": true | false }`: saved state plus the administrator email and update time.
+
+Responses use `Cache-Control: no-store`. Relevant visible clients check every five seconds and on focus; initial loading/login personalization waits for server confirmation rather than trusting a stale local hint. A temporary failure keeps the last confirmed state; network recovery is required to receive newer settings. Deploy the backend, admin client and web client together (the web client adds the same-origin appearance rewrite).

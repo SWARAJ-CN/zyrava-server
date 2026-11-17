@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { appearanceRoutes } from "./appearanceRoutes.js";
 import { authRoutes } from "./authRoutes.js";
 import { libraryRoutes } from "./libraryRoutes.js";
 import { visitRoutes } from "./visitRoutes.js";
@@ -9,6 +10,7 @@ import { customizationRoutes } from "./customizationRoutes.js";
 
 export const routes = Router();
 
+routes.use("/appearance", appearanceRoutes);
 routes.use("/auth", authRoutes);
 routes.use("/library", libraryRoutes);
 routes.use("/visits", visitRoutes);

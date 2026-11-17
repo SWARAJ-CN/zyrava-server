@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { AppearanceSettings } from "../models/AppearanceSettings.js";
 import { env } from "./env.js";
 import { PaymentSettings } from "../models/PaymentSettings.js";
 import { CustomizationPurchase } from "../models/CustomizationPurchase.js";
@@ -41,6 +42,7 @@ export async function connectDb() {
   // Unique + TTL indexes are part of the contract, not an afterthought.
   if (manageIndexes) {
     await Promise.all([
+      AppearanceSettings.init(),
       User.init(),
       Customization.init(),
       CustomizationPurchase.init(),
