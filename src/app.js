@@ -27,6 +27,13 @@ app.use(
   })
 );
 
+// Razorpay WebView redirect: acknowledgement only. It never marks a payment paid.
+// The mobile app checks its own purchase through the authenticated /payments/check API.
+app.post("/api/customization/payments/mobile-return", (req, res) => {
+  res.set({ "Cache-Control": "no-store", "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'" });
+  res.type("html").send("<!doctype html><html><meta name=viewport content='width=device-width,initial-scale=1'><title>Return to ZYRAVA</title><body><h1>Return to ZYRAVA</h1><p>Close checkout to check your payment status securely in the app.</p></body></html>");
+});
+
 app.use(
   cors({
     origin(origin, callback) {
