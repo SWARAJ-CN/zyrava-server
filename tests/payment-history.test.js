@@ -232,3 +232,14 @@ test("user and admin history routes enforce ownership, authentication, masking a
     422,
   );
 });
+
+test("support history identifies the contribution without exposing a recipient or design", async (t) => {
+  const f = fixture(t);
+  f[0].purpose = "donation";
+  delete f[0].config;
+  const result = await readPaymentHistory(a, { page: 1, limit: 50 });
+  const item = result.items.find((row) => row.purpose === "donation");
+  assert.equal(item.title, "Buy A Mug");
+  assert.equal(item.recipient, null);
+  assert.equal(item.durationMinutes, null);
+});

@@ -19,7 +19,8 @@ function purchaseView(p) {
     amount: p.amount,
     currency: p.currency,
     status: p.status,
-    title: p.config.title,
+    title: p.purpose === "donation" ? "Buy A Mug" : p.config.title,
+    purpose: p.purpose,
     recipientId: String(p.recipient),
     createdAt: p.createdAt,
   };
@@ -33,9 +34,25 @@ async function ownedPurchase(userId, id) {
   if (!p) throw new AppError(404, "Payment not found.");
   return p;
 }
-export async function createOrder(userId, input) {
+export function createOrder(userId, input) {
+  return createPurchase(userId, input, false);
+}
+export function createDonationOrder(userId, input) {
+  if (
+    !Number.isSafeInteger(input.amount) ||
+    input.amount < 100 ||
+    input.amount > 1000000
+  )
+    throw new AppError(400, "Choose a support amount between ₹1 and ₹10,000.");
+  return createPurchase(
+    userId,
+    { ...input, recipientId: String(userId) },
+    true,
+  );
+}
+async function createPurchase(userId, input, donation) {
   await assertCustomizer(userId);
-  await recipient(input.recipientId);
+  if (!donation) await recipient(input.recipientId);
   const pricing = await paymentSettings.get();
   let purchase = await CustomizationPurchase.findOne({
     user: userId,
@@ -44,11 +61,14 @@ export async function createOrder(userId, input) {
   if (purchase) {
     if (
       String(purchase.recipient) !== input.recipientId ||
-      !isDeepStrictEqual(purchase.config, input.config)
+      (purchase.purpose === "donation") !== donation ||
+      (donation
+        ? purchase.amount !== input.amount
+        : !isDeepStrictEqual(purchase.config, input.config))
     )
       throw new AppError(
         409,
-        "This payment belongs to a different design. Start a new checkout.",
+        "This checkout belongs to a different request or amount. Start a new checkout.",
       );
     if (!purchase.orderId)
       throw new AppError(
@@ -57,7 +77,7 @@ export async function createOrder(userId, input) {
       );
     return purchaseView(purchase);
   }
-  if (input.expectedAmount !== pricing.amount)
+  if (!donation && input.expectedAmount !== pricing.amount)
     throw new AppError(
       409,
       "The customization price changed. Review the new price and try again.",
@@ -66,15 +86,16 @@ export async function createOrder(userId, input) {
     purchase = await CustomizationPurchase.create({
       user: userId,
       recipient: input.recipientId,
-      purpose:
-        String(userId) === input.recipientId
+      purpose: donation
+        ? "donation"
+        : String(userId) === input.recipientId
           ? "customization_self"
           : "customization_gift",
       requestId: input.requestId,
-      config: input.config,
+      ...(donation ? {} : { config: input.config }),
       keyId: pricing.keyId,
       credentialId: pricing.credentialId,
-      amount: pricing.amount,
+      amount: donation ? input.amount : pricing.amount,
       currency: pricing.currency,
     });
   } catch (error) {
@@ -88,7 +109,10 @@ export async function createOrder(userId, input) {
   // Save the immutable purchase first. No browser chooses an amount, owner or receipt.
   let order;
   try {
-    order = await razorpay.createOrder(`custom_${purchase._id}`, purchase);
+    order = await razorpay.createOrder(
+      `${donation ? "mug" : "custom"}_${purchase._id}`,
+      purchase,
+    );
   } catch (error) {
     await CustomizationPurchase.updateOne(
       { _id: purchase._id },
@@ -109,7 +133,7 @@ export async function createOrder(userId, input) {
   )
     throw new AppError(
       502,
-      "Razorpay returned an unexpected order. No design has been saved.",
+      "Razorpay returned an unexpected order. Payment could not be started.",
     );
   await CustomizationPurchase.updateOne(
     { _id: purchase._id },
@@ -191,14 +215,17 @@ async function fulfill(purchase, paymentId) {
       .session(session)
       .lean();
     if (!fresh || fresh.status === "fulfilled") return;
-    const design = await persistCustomization(
-      String(fresh.user),
-      {
-        recipientId: String(fresh.recipient),
-        config: fresh.config,
-      },
-      session,
-    );
+    const design =
+      fresh.purpose === "donation"
+        ? null
+        : await persistCustomization(
+            String(fresh.user),
+            {
+              recipientId: String(fresh.recipient),
+              config: fresh.config,
+            },
+            session,
+          );
     await CustomizationPurchase.updateOne(
       { _id: fresh._id },
       {
@@ -206,7 +233,7 @@ async function fulfill(purchase, paymentId) {
           status: "fulfilled",
           paymentId,
           fulfilledAt: new Date(),
-          designId: design._id,
+          ...(design ? { designId: design._id } : {}),
         },
       },
       { session },
@@ -240,10 +267,7 @@ async function reconcile(
     return false;
   }
   if (!matchesPayment(payment, purchase))
-    throw new AppError(
-      400,
-      "This payment does not match the customization order.",
-    );
+    throw new AppError(400, "This payment does not match the order.");
   await recordPayment(purchase, payment);
   if (payment.amount_refunded > 0) {
     if (paymentId) throw new AppError(400, "This payment has been refunded.");

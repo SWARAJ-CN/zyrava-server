@@ -109,3 +109,12 @@ export const paymentHistorySchema = z.object({
     })
     .strict(),
 });
+
+export const createDonationOrderSchema = envelope(
+  z
+    .object({
+      requestId: z.string().uuid(),
+      amount: z.number().int().min(100).max(1000000),
+    })
+    .strict(),
+);

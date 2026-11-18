@@ -11,6 +11,7 @@ import * as payments from "../src/services/customizationPaymentService.js";
 import * as customization from "../src/services/customizationService.js";
 import {
   createCustomizationOrderSchema,
+  createDonationOrderSchema,
   customizationConfig,
 } from "../src/validators/customization.js";
 const a = "000000000000000000000001",
@@ -142,7 +143,7 @@ function fixture(t) {
     p.captured = true;
     Object.assign(gatewayOrders.get(p.order_id), {
       status: "paid",
-      amount_paid: 500,
+      amount_paid: p.amount,
       amount_due: 0,
     });
     return { ...p };
@@ -157,7 +158,7 @@ function fixture(t) {
     const p = {
       id: "pay_test" + gatewayPayments.size,
       order_id: purchase.orderId,
-      amount: 500,
+      amount: purchase.amount,
       currency: "INR",
       status: "captured",
       captured: true,
@@ -167,7 +168,7 @@ function fixture(t) {
     gatewayPayments.set(p.id, p);
     Object.assign(gatewayOrders.get(purchase.orderId), {
       status: "paid",
-      amount_paid: 500,
+      amount_paid: purchase.amount,
       amount_due: 0,
     });
     return p;
@@ -474,4 +475,84 @@ test("birthday wishes and new animation selections survive paid gift fulfillment
   await customization.removeCustomization(b, incoming.id);
   assert.equal((await customization.readCustomizations(b)).active, null);
   assert.equal(f.purchases[0].status, "fulfilled");
+});
+
+test("support orders keep the chosen amount, isolate purpose and never apply a customization", async (t) => {
+  const f = fixture(t);
+  const input = { amount: 5000, requestId: randomUUID() };
+  const order = await payments.createDonationOrder(a, input);
+  assert.equal(order.amount, 5000);
+  assert.equal(order.purpose, "donation");
+  assert.equal(order.title, "Buy A Mug");
+  assert.equal(f.purchases[0].config, undefined);
+  assert.deepEqual(await payments.createDonationOrder(a, input), order);
+  assert.equal(razorpay.createOrder.mock.calls.length, 1);
+  await assert.rejects(
+    payments.createDonationOrder(a, { ...input, amount: 10000 }),
+    { status: 409 },
+  );
+  await assert.rejects(
+    payments.createOrder(a, { ...f.input(), requestId: input.requestId }),
+    { status: 409 },
+  );
+  assert.equal((await payments.checkPayment(a, order.id)).fulfilled, false);
+  const paid = f.paid(order);
+  await assert.rejects(payments.verifyPayment(b, f.proof(order, paid)), {
+    status: 404,
+  });
+  const proof = f.proof(order, paid);
+  await assert.rejects(
+    payments.verifyPayment(a, { ...proof, razorpay_signature: "0".repeat(64) }),
+    { status: 400 },
+  );
+  await Promise.all([
+    payments.verifyPayment(a, proof),
+    payments.checkPayment(a, order.id),
+  ]);
+  assert.equal(f.purchases[0].status, "fulfilled");
+  assert.equal(f.purchases[0].paymentStatus, "captured");
+  assert.equal(f.purchases[0].capturedAmount, 5000);
+  assert.equal(f.purchases[0].designId, undefined);
+  assert.equal(f.designs.length, 0);
+  assert.equal(f.users[0].customization, null);
+});
+
+test("support accepts presets and custom paise amounts, rejects tampering and invalid bounds", async (t) => {
+  fixture(t);
+  for (const amount of [
+    1000, 5000, 10000, 50000, 100000, 25075, 100, 1000000,
+  ]) {
+    const body = { amount, requestId: randomUUID() };
+    assert.equal(
+      createDonationOrderSchema.safeParse({ body, params: {}, query: {} })
+        .success,
+      true,
+    );
+    const order = await payments.createDonationOrder(a, body);
+    assert.equal(order.amount, amount);
+  }
+  for (const amount of [0, -100, 99, 1000001, 10.5, "1000", NaN, Infinity]) {
+    const body = { amount, requestId: randomUUID() };
+    assert.equal(
+      createDonationOrderSchema.safeParse({ body, params: {}, query: {} })
+        .success,
+      false,
+    );
+    assert.throws(() => payments.createDonationOrder(a, body), { status: 400 });
+  }
+  assert.equal(
+    createDonationOrderSchema.safeParse({
+      body: { amount: 1000, requestId: randomUUID(), recipientId: b, config },
+      params: {},
+      query: {},
+    }).success,
+    false,
+  );
+  await assert.rejects(
+    payments.createDonationOrder(reserved, {
+      amount: 1000,
+      requestId: randomUUID(),
+    }),
+    { status: 403 },
+  );
 });

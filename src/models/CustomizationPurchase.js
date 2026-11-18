@@ -11,10 +11,15 @@ const schema = new mongoose.Schema(
     },
     purpose: {
       type: String,
-      enum: ["customization_self", "customization_gift"],
+      enum: ["customization_self", "customization_gift", "donation"],
     },
     requestId: { type: String, required: true },
-    config: { type: customizationConfigSchema, required: true },
+    config: {
+      type: customizationConfigSchema,
+      required: function () {
+        return this.purpose !== "donation";
+      },
+    },
     amount: {
       type: Number,
       min: 100,

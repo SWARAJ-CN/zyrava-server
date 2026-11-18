@@ -12,10 +12,10 @@ import {
   resetCustomizationSchema,
   removeCustomizationSchema,
   createCustomizationOrderSchema,
+  createDonationOrderSchema,
   verifyCustomizationPaymentSchema,
   checkCustomizationPaymentSchema,
 } from "../validators/customization.js";
-import { AppError } from "../utils/http.js";
 import { paymentSettings } from "../services/paymentSettingsService.js";
 import { readPaymentHistory } from "../services/paymentHistoryService.js";
 import * as payments from "../services/customizationPaymentService.js";
@@ -59,7 +59,7 @@ const shareLimiter = rateLimit({
   standardHeaders: "draft-7",
   legacyHeaders: false,
   message: {
-    error: "You have saved several designs. Please try again in a few minutes.",
+    error: "Too many requests. Please try again in a few minutes.",
   },
 });
 customizationRoutes.post(
@@ -68,11 +68,7 @@ customizationRoutes.post(
   shareLimiter,
   validate(saveCustomizationSchema),
   asyncHandler(async (req, res) => {
-    await service.assertCustomizer(req.userId);
-    throw new AppError(
-      402,
-      "Saving a customization requires payment. Please use the payment checkout.",
-    );
+    res.json(await service.saveCustomization(req.userId, req.valid.body));
   }),
 );
 customizationRoutes.post(
@@ -121,6 +117,15 @@ customizationRoutes.post(
   validate(createCustomizationOrderSchema),
   asyncHandler(async (req, res) =>
     res.json(await payments.createOrder(req.userId, req.valid.body)),
+  ),
+);
+customizationRoutes.post(
+  "/donations/order",
+  verifyCsrf,
+  shareLimiter,
+  validate(createDonationOrderSchema),
+  asyncHandler(async (req, res) =>
+    res.json(await payments.createDonationOrder(req.userId, req.valid.body)),
   ),
 );
 customizationRoutes.post(

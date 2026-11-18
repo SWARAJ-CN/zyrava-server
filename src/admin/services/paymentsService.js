@@ -52,6 +52,9 @@ export async function listPayments({
           { paymentId: pattern },
           { lastPaymentId: pattern },
           { "config.title": pattern },
+          ...(pattern.test("Buy A Mug support donation")
+            ? [{ purpose: "donation" }]
+            : []),
           { "payer.name": pattern },
           { "payer.email": pattern },
           { "recipientUser.name": pattern },
@@ -84,6 +87,7 @@ export async function listPayments({
             amountRefunded: 1,
             failureCode: 1,
             "config.title": 1,
+            purpose: 1,
             payer: {
               $map: {
                 input: "$payer",
@@ -159,11 +163,16 @@ export async function listPayments({
   stats.net = Math.max(0, stats.gross - stats.refunded);
   const items = (result?.items ?? []).map((p) => ({
     id: String(p._id),
-    title: p.config?.title ?? "Customization",
+    title:
+      p.purpose === "donation"
+        ? "Buy A Mug"
+        : (p.config?.title ?? "Customization"),
+    purpose: p.purpose,
     payer: p.payer?.[0] ? publicCustomizationPerson(p.payer[0]) : null,
-    recipient: p.recipientUser?.[0]
-      ? publicCustomizationPerson(p.recipientUser[0])
-      : null,
+    recipient:
+      p.purpose !== "donation" && p.recipientUser?.[0]
+        ? publicCustomizationPerson(p.recipientUser[0])
+        : null,
     amount: p.amount,
     currency: p.currency,
     paymentStatus: p.paymentStatus,

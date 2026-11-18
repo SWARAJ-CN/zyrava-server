@@ -137,7 +137,7 @@ export async function persistCustomization(userId, input, session = null) {
   if (self) await applyDesign(userId, design, creator, session);
   return design;
 }
-// Internal helper for trusted callers; HTTP saves require a paid purchase.
+// Customization is free; gifting still requires the recipient to accept.
 export async function saveCustomization(userId, input) {
   await persistCustomization(userId, input);
   return readCustomizations(userId);

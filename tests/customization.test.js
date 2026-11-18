@@ -202,14 +202,15 @@ test("HTTP routes enforce bearer authentication, CSRF, strict validation, and pr
         body: JSON.stringify({ recipientId: privateId, config }),
       })
     ).status,
-    402,
+    404,
   );
   const response = await fetch(url + "/save", {
     method: "POST",
     headers,
     body: JSON.stringify({ recipientId: a, config }),
   });
-  assert.equal(response.status, 402);
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).active.config.title, config.title);
   const searched = await fetch(url + "/users?q=%2B91%209876543210", {
     headers,
   });

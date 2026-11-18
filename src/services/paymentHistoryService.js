@@ -34,9 +34,12 @@ export async function readPaymentHistory(
           : "customization_gift");
       return {
         id: String(p._id),
-        title: p.config?.title ?? "Customization",
+        title:
+          purpose === "donation"
+            ? "Buy A Mug"
+            : (p.config?.title ?? "Customization"),
         purpose,
-        recipient,
+        recipient: purpose === "donation" ? null : recipient,
         amount: p.amount,
         currency: p.currency,
         amountRefunded: p.amountRefunded ?? 0,
