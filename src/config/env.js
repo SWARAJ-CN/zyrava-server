@@ -18,6 +18,11 @@ if (isProd && (accessSecret.length < 32 || refreshSecret.length < 32)) {
 
 export const env = {
   isProd,
+  emailOtpEnabled: process.env.EMAIL_OTP_ENABLED === "true",
+  smtpHost: process.env.SMTP_HOST?.trim() || "smtp.gmail.com",
+  smtpPort: Number(process.env.SMTP_PORT || 465),
+  smtpUser: process.env.SMTP_USER?.trim(),
+  smtpPassword: process.env.SMTP_PASSWORD?.replace(/\s/g, ""),
   paymentSettingsEncryptionKey: process.env.PAYMENT_SETTINGS_ENCRYPTION_KEY?.trim(),
   razorpayKeyId: process.env.RAZORPAY_KEY_ID?.trim(),
   razorpayKeySecret: process.env.RAZORPAY_KEY_SECRET?.trim(),

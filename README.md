@@ -217,3 +217,24 @@ This is strictly a presentation setting: `accountExperience()` and community exc
 - Admin-only `GET /api/admin/appearance` and `POST /api/admin/appearance` with `{ "vimithaThemeEnabled": true | false }`: saved state plus the administrator email and update time.
 
 Responses use `Cache-Control: no-store`. Relevant visible clients check every five seconds and on focus; initial loading/login personalization waits for server confirmation rather than trusting a stale local hint. A temporary failure keeps the last confirmed state; network recovery is required to receive newer settings. Deploy the backend, admin client and web client together (the web client adds the same-origin appearance rewrite).
+
+
+## Email sign-in verification and password recovery
+
+Nodemailer sends six-digit codes with the bundled ZYRAVA logo embedded in the email. Configure these **backend-only** environment variables on each deployed server (never use a public frontend environment variable):
+
+- `SMTP_HOST=smtp.gmail.com`
+- `SMTP_PORT=465`
+- `SMTP_USER`: the full Gmail address that owns the app password
+- `SMTP_PASSWORD`: that account's Gmail app password
+- `EMAIL_OTP_ENABLED=true` to activate the rollout
+
+Deploy the web and mobile OTP screens before activation. The local `.env` is ignored by Git and is not automatically copied to Render. While SMTP details are incomplete, keep `EMAIL_OTP_ENABLED=false`.
+
+On startup with OTP enabled, the server verifies SMTP, creates the challenge indexes, and deletes legacy refresh sessions **only for users with an email address**. Existing email access tokens without OTP verification are also rejected. Verified sessions survive server restarts and refresh normally; each new email sign-in after logout requires password plus OTP. Phone-only accounts retain password login and existing sessions. They cannot use email OTP or password recovery.
+
+Auth endpoints (all POST, CSRF protected): `/api/auth/email/verify`, `/api/auth/email/resend`, `/api/auth/password/request`, `/api/auth/password/verify`, `/api/auth/password/reset`. Login/registration can return HTTP 202 with `requiresOtp` and an opaque `challengeId`; clients must not treat that as a session. Password verification returns a short-lived, single-use reset token, not a login token.
+
+Codes expire in ten minutes, permit five verification attempts and at most three deliveries per challenge, and enforce a one-minute per-account resend cooldown. Only keyed hashes of codes and reset tokens are stored. Successful password reset revokes refresh sessions, invalidates older access-token versions, and disconnects the account's realtime sockets. Reset requests use the same response shape for unknown addresses.
+
+Verification: `node --test tests/email-auth.test.js` tests challenge replay/races, expiry, attempt limits, resets, and the email-only rollout without contacting SMTP or a real database.

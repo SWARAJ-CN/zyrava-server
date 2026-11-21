@@ -1,6 +1,6 @@
 import { Server } from "socket.io";
 import { env } from "../config/env.js";
-import { verifyAccessToken } from "../utils/tokens.js";
+import { validateAccessSession } from "../middleware/auth.js";
 import { markSeen } from "../services/communityService.js";
 import { addSocket, removeSocket } from "./presence.js";
 import { setIo, userRoom } from "./rooms.js";
@@ -47,7 +47,7 @@ export function attachRealtime(httpServer) {
   io.use(async (socket, next) => {
     const token = String(socket.handshake.auth?.token ?? "");
     try {
-      socket.data.userId = verifyAccessToken(token).sub;
+      socket.data.userId = (await validateAccessSession(token)).sub;
       // Reject before joining rooms or adding/broadcasting presence.
       await assertCommunityUser(socket.data.userId);
     } catch {

@@ -13,6 +13,9 @@ import { accountExperience } from "./accountExperience.js";
 
 import { publicCustomization } from "../models/customizationFields.js";
 
+import { env } from "../config/env.js";
+import { startEmailChallenge, verifyEmailChallenge } from "./emailOtpService.js";
+
 const BCRYPT_ROUNDS = 10;
 /** A real hash so a missing account costs the same compare as a wrong password. */
 const DUMMY_HASH = bcrypt.hashSync("zyrava-invalid-password", BCRYPT_ROUNDS);
@@ -29,7 +32,7 @@ function publicUser(user) {
   };
 }
 
-async function issueSession(user, remember, meta) {
+async function issueSession(user, remember, meta, emailOtpVerified = false) {
   const refreshToken = newRefreshToken();
   const expiresAt = refreshExpiry(remember);
 
@@ -37,6 +40,8 @@ async function issueSession(user, remember, meta) {
     user: user._id,
     tokenHash: hashToken(refreshToken),
     remember,
+    emailOtpVerified,
+    authVersion: user.authVersion ?? 0,
     expiresAt,
     userAgent: meta.userAgent,
     ip: meta.ip,
@@ -44,7 +49,7 @@ async function issueSession(user, remember, meta) {
 
   return {
     user: publicUser(user),
-    accessToken: signAccessToken(user),
+    accessToken: signAccessToken(user, emailOtpVerified),
     refreshToken,
     expiresAt,
   };
@@ -69,6 +74,7 @@ export async function registerAccount(input, meta) {
     passwordHash,
   });
 
+  if (env.emailOtpEnabled && user.email) return startEmailChallenge(user, "login", input.remember);
   return issueSession(user, input.remember, meta);
 }
 
@@ -90,6 +96,7 @@ export async function loginAccount(input, meta) {
   }
 
   await User.updateOne({ _id: user._id }, { $set: { lastLoginAt: new Date() } });
+  if (env.emailOtpEnabled && user.email) return startEmailChallenge(user, "login", input.remember);
   return issueSession(user, input.remember, meta);
 }
 
@@ -105,7 +112,10 @@ export async function rotateSession(refreshToken, meta) {
   const user = await User.findById(session.user);
   if (!user) throw new AppError(401, "This account no longer exists.");
 
-  return issueSession(user, session.remember, meta);
+  if ((session.authVersion ?? 0) !== (user.authVersion ?? 0) || (env.emailOtpEnabled && user.email && !session.emailOtpVerified)) {
+    throw new AppError(401, "Please sign in again and verify your email.");
+  }
+  return issueSession(user, session.remember, meta, session.emailOtpVerified);
 }
 
 export async function revokeSession(refreshToken) {
@@ -117,4 +127,10 @@ export async function findUser(userId) {
   const user = await User.findById(userId).select("name email phone createdAt customization").lean();
   if (!user) throw new AppError(404, "Account not found.");
   return publicUser(user);
+}
+
+export async function completeEmailLogin(input, meta) {
+  const result = await verifyEmailChallenge(input.challengeId, input.code, "login");
+  await User.updateOne({ _id: result.user._id }, { $set: { lastLoginAt: new Date() } });
+  return issueSession(result.user, result.remember, meta, true);
 }

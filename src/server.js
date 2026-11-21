@@ -4,8 +4,12 @@ import { env } from "./config/env.js";
 import { connectDb, disconnectDb } from "./config/db.js";
 import { attachRealtime } from "./realtime/io.js";
 
+
+import { prepareEmailAuthentication } from "./services/emailAuthRollout.js";
+
 async function start() {
   await connectDb();
+  await prepareEmailAuthentication();
 
   // One HTTP server for both halves of the app: the REST API and, riding on
   // the same port, the Socket.IO endpoint the community live-updates.
