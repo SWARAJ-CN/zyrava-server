@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 import { EmailChallenge } from "../models/EmailChallenge.js";
@@ -29,7 +30,7 @@ export async function startEmailChallenge(user, purpose, remember = false) {
   try {
     // Unique user/purpose index makes the per-account cooldown atomic across instances.
     challenge = await EmailChallenge.findOneAndUpdate({
-      user: user._id, purpose, sentAt: { $lte: new Date(Date.now() - COOLDOWN) },
+      user: user._id, purpose, sentAt: mongoose.trusted({ $lte: new Date(Date.now() - COOLDOWN) }),
     }, { $set: { tokenHash: hashToken(challengeId), codeHash: otpDigest(challengeId, otp),
       passwordStamp: hashToken(user.passwordHash), remember, attempts: 0, sends: 1,
       sentAt: now, expiresAt: new Date(Date.now() + TTL) },
@@ -58,8 +59,8 @@ export async function resendEmailChallenge(challengeId, purpose) {
   enabled();
   const nextCode = code();
   const challenge = await EmailChallenge.findOneAndUpdate({ tokenHash: hashToken(challengeId), purpose,
-    verifiedAt: null, expiresAt: { $gt: new Date() }, attempts: { $lt: 5 }, sends: { $lt: 3 },
-    sentAt: { $lte: new Date(Date.now() - COOLDOWN) },
+    verifiedAt: null, expiresAt: mongoose.trusted({ $gt: new Date() }), attempts: mongoose.trusted({ $lt: 5 }), sends: mongoose.trusted({ $lt: 3 }),
+    sentAt: mongoose.trusted({ $lte: new Date(Date.now() - COOLDOWN) }),
   }, { $set: { codeHash: otpDigest(challengeId, nextCode), sentAt: new Date(), expiresAt: new Date(Date.now() + TTL) }, $inc: { sends: 1 } }, { new: true });
   if (!challenge) {
     if (purpose === "reset") return { requiresOtp: true, challengeId, purpose, expiresIn: 600, resendAfter: 60 };
@@ -74,7 +75,7 @@ export async function resendEmailChallenge(challengeId, purpose) {
 export async function verifyEmailChallenge(challengeId, otp, purpose) {
   enabled();
   const challenge = await EmailChallenge.findOneAndUpdate({ tokenHash: hashToken(challengeId), purpose,
-    verifiedAt: null, expiresAt: { $gt: new Date() }, attempts: { $lt: 5 },
+    verifiedAt: null, expiresAt: mongoose.trusted({ $gt: new Date() }), attempts: mongoose.trusted({ $lt: 5 }),
   }, { $inc: { attempts: 1 } }, { new: true });
   if (!challenge || !challenge.codeHash || !crypto.timingSafeEqual(
     Buffer.from(challenge.codeHash, "hex"), Buffer.from(otpDigest(challengeId, otp), "hex")
@@ -85,7 +86,7 @@ export async function verifyEmailChallenge(challengeId, otp, purpose) {
   // Exactly one successful verification can consume the code, even in parallel.
   const consumed = await EmailChallenge.findOneAndUpdate({ _id: challenge._id,
     tokenHash: challenge.tokenHash, codeHash: challenge.codeHash, verifiedAt: null,
-    expiresAt: { $gt: new Date() }, attempts: { $lte: 5 },
+    expiresAt: mongoose.trusted({ $gt: new Date() }), attempts: mongoose.trusted({ $lte: 5 }),
   }, { $set: { verifiedAt: new Date(), ...(resetToken ? { resetTokenHash: hashToken(resetToken), expiresAt: new Date(Date.now() + TTL) } : {}) }, $unset: { codeHash: 1 } }, { new: true });
   if (!consumed) throw invalid();
   return { user, remember: challenge.remember, resetToken };
@@ -93,12 +94,12 @@ export async function verifyEmailChallenge(challengeId, otp, purpose) {
 
 export async function finishPasswordReset(resetToken, password) {
   enabled();
-  const grant = await EmailChallenge.findOne({ resetTokenHash: hashToken(resetToken), purpose: "reset", verifiedAt: { $ne: null }, expiresAt: { $gt: new Date() } });
+  const grant = await EmailChallenge.findOne({ resetTokenHash: hashToken(resetToken), purpose: "reset", verifiedAt: mongoose.trusted({ $ne: null }), expiresAt: mongoose.trusted({ $gt: new Date() }) });
   if (!grant) throw invalid();
   const user = await User.findById(grant.user).select("+passwordHash");
   if (!user?.email || hashToken(user.passwordHash) !== grant.passwordStamp) throw invalid();
   const passwordHash = await bcrypt.hash(password, 10);
-  const consumed = await EmailChallenge.findOneAndDelete({ _id: grant._id, resetTokenHash: hashToken(resetToken), expiresAt: { $gt: new Date() } });
+  const consumed = await EmailChallenge.findOneAndDelete({ _id: grant._id, resetTokenHash: hashToken(resetToken), expiresAt: mongoose.trusted({ $gt: new Date() }) });
   if (!consumed) throw invalid();
   const updated = await User.updateOne({ _id: user._id, passwordHash: user.passwordHash }, { $set: { passwordHash }, $inc: { authVersion: 1 } });
   if (!updated.modifiedCount) throw invalid();

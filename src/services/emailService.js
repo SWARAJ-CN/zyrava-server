@@ -1,5 +1,6 @@
 import nodemailer from "nodemailer";
 import { fileURLToPath } from "node:url";
+import { readFile } from "node:fs/promises";
 import { env } from "../config/env.js";
 import { AppError } from "../utils/http.js";
 
@@ -29,9 +30,32 @@ export function otpEmail(code, purpose) {
 
 export async function sendOtpEmail(email, code, purpose) {
   try {
-    await mailTransport().sendMail({ from: { name: "ZYRAVA", address: env.smtpUser }, to: email, ...otpEmail(code, purpose) });
+    const message = otpEmail(code, purpose);
+    if (env.emailProvider === "resend") {
+      if (!env.resendApiKey || !env.emailFrom) throw new Error("Email setup incomplete");
+      const attachments = await Promise.all(message.attachments.map(async attachment => ({
+        filename: attachment.filename,
+        content: (await readFile(attachment.path)).toString("base64"),
+        content_type: "image/png",
+        content_id: attachment.cid,
+      })));
+      const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${env.resendApiKey}`, "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(15_000),
+        body: JSON.stringify({ from: env.emailFrom, to: [email], subject: message.subject, text: message.text, html: message.html, attachments }),
+      });
+      // Never log provider response bodies: they may include recipient details.
+      if (!response.ok) throw new Error("Email provider rejected delivery");
+      const result = await response.json();
+      if (!result.id) throw new Error("Email provider did not accept delivery");
+    } else if (env.emailProvider === "smtp") {
+      await mailTransport().sendMail({ from: { name: "ZYRAVA", address: env.smtpUser }, to: email, ...message });
+    } else {
+      throw new Error("Unsupported email provider");
+    }
   } catch {
-    // SMTP errors can contain credentials or recipients; do not log them.
+    // Transport errors can contain credentials or recipients; do not log them.
     throw new AppError(503, "We couldn't send the email. Please try again shortly.");
   }
 }

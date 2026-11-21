@@ -221,20 +221,40 @@ Responses use `Cache-Control: no-store`. Relevant visible clients check every fi
 
 ## Email sign-in verification and password recovery
 
-Nodemailer sends six-digit codes with the bundled ZYRAVA logo embedded in the email. Configure these **backend-only** environment variables on each deployed server (never use a public frontend environment variable):
+Email delivery supports Nodemailer SMTP or Resend over HTTPS. Both send six-digit codes with the bundled ZYRAVA logo embedded in the email. For SMTP: Configure these **backend-only** environment variables on each deployed server (never use a public frontend environment variable):
 
+- `EMAIL_PROVIDER=smtp`
 - `SMTP_HOST=smtp.gmail.com`
 - `SMTP_PORT=465`
 - `SMTP_USER`: the full Gmail address that owns the app password
 - `SMTP_PASSWORD`: that account's Gmail app password
 - `EMAIL_OTP_ENABLED=true` to activate the rollout
 
-Deploy the web and mobile OTP screens before activation. The local `.env` is ignored by Git and is not automatically copied to Render. While SMTP details are incomplete, keep `EMAIL_OTP_ENABLED=false`.
+Deploy the web and mobile OTP screens before activation. The local `.env` is ignored by Git and is not automatically copied to Render. Keep OTP enabled once activated; never disable it to work around a mail outage. Email sign-in fails closed if mail cannot be sent, while phone login and other API routes remain available.
 
-On startup with OTP enabled, the server verifies SMTP, creates the challenge indexes, and deletes legacy refresh sessions **only for users with an email address**. Existing email access tokens without OTP verification are also rejected. Verified sessions survive server restarts and refresh normally; each new email sign-in after logout requires password plus OTP. Phone-only accounts retain password login and existing sessions. They cannot use email OTP or password recovery.
+On startup with OTP enabled, the server creates the challenge indexes, and deletes legacy refresh sessions **only for users with an email address**. Existing email access tokens without OTP verification are also rejected. Verified sessions survive server restarts and refresh normally; each new email sign-in after logout requires password plus OTP. Phone-only accounts retain password login and existing sessions. They cannot use email OTP or password recovery.
 
 Auth endpoints (all POST, CSRF protected): `/api/auth/email/verify`, `/api/auth/email/resend`, `/api/auth/password/request`, `/api/auth/password/verify`, `/api/auth/password/reset`. Login/registration can return HTTP 202 with `requiresOtp` and an opaque `challengeId`; clients must not treat that as a session. Password verification returns a short-lived, single-use reset token, not a login token.
 
 Codes expire in ten minutes, permit five verification attempts and at most three deliveries per challenge, and enforce a one-minute per-account resend cooldown. Only keyed hashes of codes and reset tokens are stored. Successful password reset revokes refresh sessions, invalidates older access-token versions, and disconnects the account's realtime sockets. Reset requests use the same response shape for unknown addresses.
 
 Verification: `node --test tests/email-auth.test.js` tests challenge replay/races, expiry, attempt limits, resets, and the email-only rollout without contacting SMTP or a real database.
+
+### Render Free: send over HTTPS
+
+Render Free blocks outbound SMTP ports 25, 465 and 587 (https://render.com/docs/free). Gmail app passwords cannot bypass this. Startup no longer connects to SMTP, so a mail outage does not crash the entire server. This fixes the startup blocker, **not** Gmail delivery on Render Free.
+
+Use the HTTPS transport by setting these in Render → your backend → Environment, then redeploy:
+
+```dotenv
+EMAIL_OTP_ENABLED=true
+EMAIL_PROVIDER=resend
+RESEND_API_KEY=<your Resend sending API key>
+EMAIL_FROM=ZYRAVA <auth@your-verified-domain.com>
+```
+
+Create a Resend account, add a domain you own, and publish its requested SPF/DKIM records until it is verified. Configure DMARC for the domain as well. Follow https://resend.com/docs/dashboard/domains/introduction. `EMAIL_FROM` must use that verified domain; `zyrava00@gmail.com` cannot be verified as your own domain. Never put the API key in the frontend/mobile environment. Local Gmail SMTP can continue using `EMAIL_PROVIDER=smtp`.
+
+`npm run mail:verify` verifies SMTP authentication without sending mail, or checks required Resend settings locally (it does not validate the Resend API key/domain). After deployment, test one real email login and password reset. HTTPS delivery failures/timeouts return a sanitized error and do not fall back to password-only login. Unknown reset addresses retain their generic response. No automatic retries that might send duplicate OTPs are performed.
+
+For inbox placement, use a consistent verified sender and keep transactional emails separate from marketing. SPF/DKIM/DMARC help establish authenticity but cannot guarantee avoiding spam. Both OTP screens remind users to check Spam/Junk, mark legitimate ZYRAVA email “Not spam”, and offer an inbox shortcut without placing their address or code in the link.

@@ -181,7 +181,7 @@ test("user and admin history routes enforce ownership, authentication, masking a
   t.after(() => new Promise((resolve) => server.close(resolve)));
   const base = `http://127.0.0.1:${server.address().port}`;
   const path = "/api/customization/payments/history";
-  const headers = { Authorization: `Bearer ${signAccessToken({ _id: a })}` };
+  const headers = { Authorization: `Bearer ${signAccessToken({ _id: a }, true)}` };
   assert.equal((await fetch(base + path)).status, 401);
   const response = await fetch(base + path + "?page=2&limit=3", { headers });
   assert.equal(response.status, 200);
@@ -203,7 +203,7 @@ test("user and admin history routes enforce ownership, authentication, masking a
     (
       await fetch(base + path, {
         headers: {
-          Authorization: `Bearer ${signAccessToken({ _id: reserved })}`,
+          Authorization: `Bearer ${signAccessToken({ _id: reserved }, true)}`,
         },
       })
     ).status,

@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import bcrypt from "bcryptjs";
+import mongoose from "mongoose";
 process.env.EMAIL_OTP_ENABLED = "true";
+process.env.EMAIL_PROVIDER = "smtp";
 process.env.SMTP_USER = "test@example.com";
 process.env.SMTP_PASSWORD = "test-only-password";
 process.env.JWT_ACCESS_SECRET = "test-access-secret-not-used-outside-tests";
@@ -12,11 +14,20 @@ const { Session } = await import("../src/models/Session.js");
 const { EmailChallenge } = await import("../src/models/EmailChallenge.js");
 const otp = await import("../src/services/emailOtpService.js");
 const auth = await import("../src/services/authService.js");
-const { mailTransport, otpEmail } = await import("../src/services/emailService.js");
+const { mailTransport, otpEmail, sendOtpEmail } = await import("../src/services/emailService.js");
 const { signAccessToken, hashToken } = await import("../src/utils/tokens.js");
 const { validateAccessSession } = await import("../src/middleware/auth.js");
 const { prepareEmailAuthentication } = await import("../src/services/emailAuthRollout.js");
+const { env } = await import("../src/config/env.js");
 const passwordHash = await bcrypt.hash("password123", 4);
+// Apply the same real Mongoose casting/sanitization as connectDb(), without
+// opening a connection or changing live accounts. The old mocks skipped this.
+function checkFilter(Model, filter) {
+  const query = new mongoose.Query(filter, {}, Model, Model.collection);
+  query.setOptions({ sanitizeFilter: true, strictQuery: true });
+  query._castConditions();
+  assert.ifError(query.error());
+}
 const copy = (v) => v == null ? v : structuredClone(v);
 function matches(item, filter) {
   return Object.entries(filter).every(([key, value]) => {
@@ -40,30 +51,31 @@ function update(item, change) {
   for (const key of Object.keys(change.$unset ?? {})) delete item[key];
 }
 function harness(t) {
-  const email = { _id: "email-user", email: "person@example.com", passwordHash, authVersion: 0 };
-  const phone = { _id: "phone-user", phone: "+919876543210", passwordHash, authVersion: 0 };
+  const email = { _id: "111111111111111111111111", email: "person@example.com", passwordHash, authVersion: 0 };
+  const phone = { _id: "222222222222222222222222", phone: "+919876543210", passwordHash, authVersion: 0 };
   const users = [email, phone], challenges = [], sessions = [], messages = [];
   const query = (value) => ({ select: () => query(value), lean: async () => copy(value), then: (ok, fail) => Promise.resolve(copy(value)).then(ok, fail) });
   t.mock.method(User, "findOne", filter => query(users.find(u => matches(u, filter)) ?? null));
   t.mock.method(User, "findById", id => query(users.find(u => u._id === String(id)) ?? null));
   t.mock.method(User, "updateOne", async (filter, change) => { const u = users.find(u => matches(u, filter)); if (!u) return { modifiedCount: 0 }; update(u, change); return { modifiedCount: 1 }; });
   t.mock.method(EmailChallenge, "findOneAndUpdate", async (filter, change, options = {}) => {
+    checkFilter(EmailChallenge, filter);
     let item = challenges.find(c => matches(c, filter));
     if (!item && options.upsert) {
       if (challenges.some(c => c.user === filter.user && c.purpose === filter.purpose)) throw Object.assign(new Error("duplicate"), { code: 11000 });
-      item = { _id: `challenge-${challenges.length}`, user: filter.user, purpose: filter.purpose };
+      item = { _id: String(challenges.length + 1).padStart(24, "0"), user: filter.user, purpose: filter.purpose };
       challenges.push(item);
     }
     if (!item) return null;
     update(item, change); return copy(item);
   });
-  t.mock.method(EmailChallenge, "findOne", async filter => copy(challenges.find(c => matches(c, filter)) ?? null));
-  t.mock.method(EmailChallenge, "findOneAndDelete", async filter => { const i = challenges.findIndex(c => matches(c, filter)); return i < 0 ? null : challenges.splice(i, 1)[0]; });
-  t.mock.method(EmailChallenge, "deleteOne", async filter => { const i = challenges.findIndex(c => matches(c, filter)); if (i >= 0) challenges.splice(i, 1); });
+  t.mock.method(EmailChallenge, "findOne", async filter => { checkFilter(EmailChallenge, filter); return copy(challenges.find(c => matches(c, filter)) ?? null); });
+  t.mock.method(EmailChallenge, "findOneAndDelete", async filter => { checkFilter(EmailChallenge, filter); const i = challenges.findIndex(c => matches(c, filter)); return i < 0 ? null : challenges.splice(i, 1)[0]; });
+  t.mock.method(EmailChallenge, "deleteOne", async filter => { checkFilter(EmailChallenge, filter); const i = challenges.findIndex(c => matches(c, filter)); if (i >= 0) challenges.splice(i, 1); });
   t.mock.method(EmailChallenge, "deleteMany", async filter => { for (let i = challenges.length - 1; i >= 0; i--) if (matches(challenges[i], filter)) challenges.splice(i, 1); });
   t.mock.method(Session, "create", async item => sessions.push(copy(item)));
   t.mock.method(Session, "findOneAndDelete", async filter => { const i = sessions.findIndex(s => matches(s, filter)); return i < 0 ? null : sessions.splice(i, 1)[0]; });
-  t.mock.method(Session, "deleteMany", async filter => { for (let i = sessions.length - 1; i >= 0; i--) if (matches(sessions[i], filter)) sessions.splice(i, 1); });
+  t.mock.method(Session, "deleteMany", async filter => { checkFilter(Session, filter); for (let i = sessions.length - 1; i >= 0; i--) if (matches(sessions[i], filter)) sessions.splice(i, 1); });
   t.mock.method(mailTransport(), "sendMail", async message => { messages.push(message); return {}; });
   const code = () => messages.at(-1).text.match(/: (\d{6})/)[1];
   return { email, phone, users, challenges, sessions, messages, code };
@@ -139,13 +151,14 @@ test("unknown reset email returns an opaque challenge without disclosing members
   assert.equal(h.messages.length, 0); assert.equal(h.challenges.length, 0);
 });
 
-test("rollout deletes only unverified email sessions and is safe to repeat", async t => {
+test("rollout succeeds with SMTP unavailable, deletes only unverified email sessions and is safe to repeat", async t => {
   const h = harness(t);
   h.sessions.push({ user: h.email._id }, { user: h.email._id, emailOtpVerified: true }, { user: h.phone._id });
-  t.mock.method(mailTransport(), "verify", async () => true);
+  const verify = t.mock.method(mailTransport(), "verify", async () => { throw new Error("SMTP port blocked"); });
   t.mock.method(EmailChallenge, "init", async () => {});
-  t.mock.method(User, "find", filter => ({ select: () => ({ cursor: async function* () { for (const u of h.users) if (matches(u, filter)) yield u; } }) }));
+  t.mock.method(User, "find", filter => { checkFilter(User, filter); return ({ select: () => ({ cursor: async function* () { for (const u of h.users) if (matches(u, filter)) yield u; } }) }); });
   await prepareEmailAuthentication(); await prepareEmailAuthentication();
+  assert.equal(verify.mock.callCount(), 0);
   assert.deepEqual(h.sessions, [{ user: h.email._id, emailOtpVerified: true }, { user: h.phone._id }]);
 });
 
@@ -153,4 +166,57 @@ test("branded emails include an embedded logo, plaintext code and expiry", () =>
   const message = otpEmail("123456", "reset");
   assert.match(message.html, /cid:zyrava-logo/); assert.equal(message.attachments[0].cid, "zyrava-logo");
   assert.match(message.text, /123456/); assert.match(message.text, /10 minutes/);
+});
+
+test("mail delivery failure cannot create an authenticated session", async t => {
+  const h = harness(t);
+  t.mock.method(mailTransport(), "sendMail", async () => { throw new Error("unavailable"); });
+  await assert.rejects(auth.loginAccount({ identifier: h.email.email, password: "password123" }, meta), e => e.status === 503);
+  assert.equal(h.sessions.length, 0);
+  assert.equal(h.challenges.length, 0);
+});
+
+function useResend(t) {
+  const saved = { emailProvider: env.emailProvider, resendApiKey: env.resendApiKey, emailFrom: env.emailFrom };
+  Object.assign(env, { emailProvider: "resend", resendApiKey: "test-only-api-key", emailFrom: "ZYRAVA <auth@example.com>" });
+  t.after(() => Object.assign(env, saved));
+}
+
+test("HTTPS mail sends the branded OTP and inline logo without using SMTP", async t => {
+  useResend(t);
+  const smtp = t.mock.method(mailTransport(), "sendMail", async () => { throw new Error("must not use SMTP"); });
+  const request = t.mock.method(globalThis, "fetch", async (url, init) => {
+    assert.equal(url, "https://api.resend.com/emails");
+    assert.equal(init.method, "POST");
+    assert.equal(init.headers.Authorization, "Bearer test-only-api-key");
+    assert.ok(init.signal instanceof AbortSignal);
+    const body = JSON.parse(init.body);
+    assert.equal(body.from, "ZYRAVA <auth@example.com>");
+    assert.deepEqual(body.to, ["person@example.com"]);
+    assert.match(body.text, /123456/);
+    assert.match(body.html, /cid:zyrava-logo/);
+    assert.equal(body.attachments[0].content_id, "zyrava-logo");
+    assert.equal(Buffer.from(body.attachments[0].content, "base64").subarray(1, 4).toString(), "PNG");
+    return { ok: true, json: async () => ({ id: "test-mail-id" }) };
+  });
+  await sendOtpEmail("person@example.com", "123456", "login");
+  assert.equal(request.mock.callCount(), 1);
+  assert.equal(smtp.mock.callCount(), 0);
+});
+
+test("HTTPS mail failures are sanitized; missing config never attempts delivery", async t => {
+  useResend(t);
+  for (const response of [
+    async () => ({ ok: false, status: 403 }),
+    async () => ({ ok: true, json: async () => ({}) }),
+    async () => { throw new Error("provider-sensitive-details"); },
+  ]) {
+    const request = t.mock.method(globalThis, "fetch", response);
+    await assert.rejects(sendOtpEmail("person@example.com", "123456", "reset"), e => e.status === 503 && !e.message.includes("provider-sensitive"));
+    request.mock.restore();
+  }
+  env.resendApiKey = "";
+  const request = t.mock.method(globalThis, "fetch", async () => { throw new Error("must not call"); });
+  await assert.rejects(sendOtpEmail("person@example.com", "123456", "login"), e => e.status === 503);
+  assert.equal(request.mock.callCount(), 0);
 });

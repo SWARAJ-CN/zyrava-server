@@ -9,7 +9,8 @@
     "test": "node --test tests/*.test.js",
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
-    "check": "node --check src/server.js"
+    "check": "node --check src/server.js",
+    "mail:verify": "node scripts/check-email-setup.js"
   },
   "engines": {
     "node": ">=20"

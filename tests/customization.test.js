@@ -162,7 +162,7 @@ test("HTTP routes enforce bearer authentication, CSRF, strict validation, and pr
   await new Promise((resolve) => server.once("listening", resolve));
   t.after(() => new Promise((resolve) => server.close(resolve)));
   const url = `http://127.0.0.1:${server.address().port}/api/customization`;
-  const token = signAccessToken({ _id: a });
+  const token = signAccessToken({ _id: a }, true);
   const headers = {
     Authorization: `Bearer ${token}`,
     "Content-Type": "application/json",
@@ -225,7 +225,7 @@ test("HTTP routes enforce bearer authentication, CSRF, strict validation, and pr
     (
       await fetch(url, {
         headers: {
-          Authorization: `Bearer ${signAccessToken({ _id: privateId })}`,
+          Authorization: `Bearer ${signAccessToken({ _id: privateId }, true)}`,
         },
       })
     ).status,

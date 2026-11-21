@@ -19,6 +19,9 @@ if (isProd && (accessSecret.length < 32 || refreshSecret.length < 32)) {
 export const env = {
   isProd,
   emailOtpEnabled: process.env.EMAIL_OTP_ENABLED === "true",
+  emailProvider: process.env.EMAIL_PROVIDER?.trim().toLowerCase() || "smtp",
+  resendApiKey: process.env.RESEND_API_KEY?.trim(),
+  emailFrom: process.env.EMAIL_FROM?.trim(),
   smtpHost: process.env.SMTP_HOST?.trim() || "smtp.gmail.com",
   smtpPort: Number(process.env.SMTP_PORT || 465),
   smtpUser: process.env.SMTP_USER?.trim(),

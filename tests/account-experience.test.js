@@ -126,9 +126,9 @@ test('socket authentication rejects the private account before presence registra
   const io=attachRealtime(createServer());
   try {
     const authenticate=io.of('/')._fns[0];
-    const error=await new Promise(resolve=>authenticate({data:{},handshake:{auth:{token:signAccessToken({_id:hidden})}}},resolve));
+    const error=await new Promise(resolve=>authenticate({data:{},handshake:{auth:{token:signAccessToken({_id:hidden}, true)}}},resolve));
     assert.equal(error?.message,'Unauthorized');
-    const normalError=await new Promise(resolve=>authenticate({data:{},handshake:{auth:{token:signAccessToken({_id:a})}}},resolve));
+    const normalError=await new Promise(resolve=>authenticate({data:{},handshake:{auth:{token:signAccessToken({_id:a}, true)}}},resolve));
     assert.equal(normalError,undefined);
   } finally { await new Promise(resolve=>io.close(resolve)); }
 });
