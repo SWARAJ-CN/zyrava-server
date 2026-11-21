@@ -6,6 +6,7 @@ const schema = new mongoose.Schema({
   codeHash: String,
   passwordStamp: { type: String, required: true },
   remember: { type: Boolean, default: false },
+  authEvent: { type: String, enum: ["registration", "login"], default: "login" },
   attempts: { type: Number, default: 0 },
   sends: { type: Number, default: 1 },
   sentAt: { type: Date, required: true },

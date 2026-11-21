@@ -22,7 +22,7 @@ function challengeResponse(challengeId, email, purpose) {
   return { requiresOtp: true, challengeId, purpose, destination: `${local.slice(0, 1)}***@${domain}`, expiresIn: 600, resendAfter: 60 };
 }
 
-export async function startEmailChallenge(user, purpose, remember = false) {
+export async function startEmailChallenge(user, purpose, remember = false, authEvent = "login") {
   enabled();
   if (!user.email) throw new AppError(400, "Email verification is only available for email accounts.");
   const challengeId = token(), otp = code(), now = new Date();
@@ -32,7 +32,7 @@ export async function startEmailChallenge(user, purpose, remember = false) {
     challenge = await EmailChallenge.findOneAndUpdate({
       user: user._id, purpose, sentAt: mongoose.trusted({ $lte: new Date(Date.now() - COOLDOWN) }),
     }, { $set: { tokenHash: hashToken(challengeId), codeHash: otpDigest(challengeId, otp),
-      passwordStamp: hashToken(user.passwordHash), remember, attempts: 0, sends: 1,
+      passwordStamp: hashToken(user.passwordHash), remember, authEvent, attempts: 0, sends: 1,
       sentAt: now, expiresAt: new Date(Date.now() + TTL) },
       $unset: { verifiedAt: 1, resetTokenHash: 1 } }, { upsert: true, new: true });
   } catch (error) {
@@ -89,7 +89,7 @@ export async function verifyEmailChallenge(challengeId, otp, purpose) {
     expiresAt: mongoose.trusted({ $gt: new Date() }), attempts: mongoose.trusted({ $lte: 5 }),
   }, { $set: { verifiedAt: new Date(), ...(resetToken ? { resetTokenHash: hashToken(resetToken), expiresAt: new Date(Date.now() + TTL) } : {}) }, $unset: { codeHash: 1 } }, { new: true });
   if (!consumed) throw invalid();
-  return { user, remember: challenge.remember, resetToken };
+  return { user, remember: challenge.remember, resetToken, authEvent: challenge.authEvent || "login" };
 }
 
 export async function finishPasswordReset(resetToken, password) {

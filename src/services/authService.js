@@ -15,6 +15,7 @@ import { publicCustomization } from "../models/customizationFields.js";
 
 import { env } from "../config/env.js";
 import { startEmailChallenge, verifyEmailChallenge } from "./emailOtpService.js";
+import { queueAdminAuthEmail } from "./adminAuthEmailService.js";
 
 const BCRYPT_ROUNDS = 10;
 /** A real hash so a missing account costs the same compare as a wrong password. */
@@ -74,8 +75,10 @@ export async function registerAccount(input, meta) {
     passwordHash,
   });
 
-  if (env.emailOtpEnabled && user.email) return startEmailChallenge(user, "login", input.remember);
-  return issueSession(user, input.remember, meta);
+  if (env.emailOtpEnabled && user.email) return startEmailChallenge(user, "login", input.remember, "registration");
+  const result = await issueSession(user, input.remember, meta);
+  await queueAdminAuthEmail(user, "registration");
+  return result;
 }
 
 export async function loginAccount(input, meta) {
@@ -95,9 +98,11 @@ export async function loginAccount(input, meta) {
     throw new AppError(401, "Invalid email, phone number or password.");
   }
 
-  await User.updateOne({ _id: user._id }, { $set: { lastLoginAt: new Date() } });
   if (env.emailOtpEnabled && user.email) return startEmailChallenge(user, "login", input.remember);
-  return issueSession(user, input.remember, meta);
+  const result = await issueSession(user, input.remember, meta);
+  await User.updateOne({ _id: user._id }, { $set: { lastLoginAt: new Date() } });
+  await queueAdminAuthEmail(user, "login");
+  return result;
 }
 
 export async function rotateSession(refreshToken, meta) {
@@ -132,5 +137,7 @@ export async function findUser(userId) {
 export async function completeEmailLogin(input, meta) {
   const result = await verifyEmailChallenge(input.challengeId, input.code, "login");
   await User.updateOne({ _id: result.user._id }, { $set: { lastLoginAt: new Date() } });
-  return issueSession(result.user, result.remember, meta, true);
+  const session = await issueSession(result.user, result.remember, meta, true);
+  await queueAdminAuthEmail(result.user, result.authEvent);
+  return session;
 }

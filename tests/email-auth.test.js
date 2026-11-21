@@ -4,11 +4,14 @@ import bcrypt from "bcryptjs";
 import mongoose from "mongoose";
 process.env.EMAIL_OTP_ENABLED = "true";
 process.env.EMAIL_PROVIDER = "smtp";
+process.env.ADMIN_NOTIFICATION_EMAIL = "zyrava00@gmail.com";
+process.env.ADMIN_AUTH_EMAILS_ENABLED = "true";
 process.env.SMTP_USER = "test@example.com";
 process.env.SMTP_PASSWORD = "test-only-password";
 process.env.JWT_ACCESS_SECRET = "test-access-secret-not-used-outside-tests";
 process.env.JWT_REFRESH_SECRET = "test-refresh-secret-not-used-outside-tests";
 process.env.MONGO_URI = "mongodb://127.0.0.1/unused-test-db";
+const { AdminAuthEmail } = await import("../src/models/AdminAuthEmail.js");
 const { User } = await import("../src/models/User.js");
 const { Session } = await import("../src/models/Session.js");
 const { EmailChallenge } = await import("../src/models/EmailChallenge.js");
@@ -53,7 +56,8 @@ function update(item, change) {
 function harness(t) {
   const email = { _id: "111111111111111111111111", email: "person@example.com", passwordHash, authVersion: 0 };
   const phone = { _id: "222222222222222222222222", phone: "+919876543210", passwordHash, authVersion: 0 };
-  const users = [email, phone], challenges = [], sessions = [], messages = [];
+  const users = [email, phone], challenges = [], sessions = [], messages = [], notifications = [];
+  t.mock.method(AdminAuthEmail, "create", async job => { notifications.push(copy(job)); return job; });
   const query = (value) => ({ select: () => query(value), lean: async () => copy(value), then: (ok, fail) => Promise.resolve(copy(value)).then(ok, fail) });
   t.mock.method(User, "findOne", filter => query(users.find(u => matches(u, filter)) ?? null));
   t.mock.method(User, "findById", id => query(users.find(u => u._id === String(id)) ?? null));
@@ -78,7 +82,7 @@ function harness(t) {
   t.mock.method(Session, "deleteMany", async filter => { checkFilter(Session, filter); for (let i = sessions.length - 1; i >= 0; i--) if (matches(sessions[i], filter)) sessions.splice(i, 1); });
   t.mock.method(mailTransport(), "sendMail", async message => { messages.push(message); return {}; });
   const code = () => messages.at(-1).text.match(/: (\d{6})/)[1];
-  return { email, phone, users, challenges, sessions, messages, code };
+  return { email, phone, users, challenges, sessions, messages, notifications, code };
 }
 const meta = { ip: "127.0.0.1", userAgent: "test" };
 
@@ -86,10 +90,13 @@ test("email password login produces only an OTP challenge; verification issues a
   const h = harness(t);
   const result = await auth.loginAccount({ identifier: h.email.email, password: "password123", remember: true }, meta);
   assert.equal(result.requiresOtp, true); assert.equal(result.accessToken, undefined); assert.equal(h.sessions.length, 0);
+  assert.equal(h.notifications.length, 0);
   assert.ok(!JSON.stringify(h.challenges).includes(h.code()));
   const input = { challengeId: result.challengeId, code: h.code() };
   const results = await Promise.allSettled([auth.completeEmailLogin(input, meta), auth.completeEmailLogin(input, meta)]);
   assert.equal(results.filter(r => r.status === "fulfilled").length, 1);
+  assert.equal(h.notifications.length, 1); assert.equal(h.notifications[0].event, "login");
+  assert.equal(h.notifications[0].recipient, "zyrava00@gmail.com");
   assert.equal(h.sessions.length, 1); assert.equal(h.sessions[0].emailOtpVerified, true); assert.equal(h.sessions[0].remember, true);
   await assert.rejects(auth.completeEmailLogin(input, meta), /incorrect or expired/);
 });
@@ -97,7 +104,7 @@ test("email password login produces only an OTP challenge; verification issues a
 test("wrong password never sends mail and five incorrect OTPs lock the challenge", async t => {
   const h = harness(t);
   await assert.rejects(auth.loginAccount({ identifier: h.email.email, password: "wrong" }, meta));
-  assert.equal(h.messages.length, 0);
+  assert.equal(h.messages.length, 0); assert.equal(h.notifications.length, 0);
   const challenge = await otp.startEmailChallenge(h.email, "login");
   const good = h.code(), wrong = good === "000000" ? "111111" : "000000";
   for (let i = 0; i < 5; i++) await assert.rejects(otp.verifyEmailChallenge(challenge.challengeId, wrong, "login"));
@@ -136,11 +143,13 @@ test("phone-only logins and legacy phone sessions survive while legacy email ses
   const h = harness(t);
   const phoneSession = await auth.loginAccount({ identifier: h.phone.phone, password: "password123", remember: false }, meta);
   assert.ok(phoneSession.accessToken); assert.equal(h.messages.length, 0);
+  assert.equal(h.notifications.length, 1); assert.equal(h.notifications[0].phone, h.phone.phone);
   assert.equal((await validateAccessSession(signAccessToken(h.phone))).sub, h.phone._id);
   await assert.rejects(validateAccessSession(signAccessToken(h.email)));
   h.sessions.push({ user: h.email._id, tokenHash: hashToken("legacy-email"), expiresAt: new Date(Date.now() + 100000) });
   await assert.rejects(auth.rotateSession("legacy-email", meta));
   assert.ok((await auth.rotateSession(phoneSession.refreshToken, meta)).accessToken);
+  assert.equal(h.notifications.length, 1);
   await assert.rejects(otp.startEmailChallenge(h.phone, "reset"));
 });
 
@@ -219,4 +228,34 @@ test("HTTPS mail failures are sanitized; missing config never attempts delivery"
   const request = t.mock.method(globalThis, "fetch", async () => { throw new Error("must not call"); });
   await assert.rejects(sendOtpEmail("person@example.com", "123456", "login"), e => e.status === 503);
   assert.equal(request.mock.callCount(), 0);
+});
+
+test("new email registration notifies the admin only after verification; phone registration needs no OTP", async t => {
+  const h = harness(t);
+  t.mock.method(User, "exists", async () => null);
+  t.mock.method(User, "create", async input => {
+    const user = { ...input, _id: String(h.users.length + 1).padStart(24, "0") };
+    h.users.push(user);
+    return user;
+  });
+  const registered = await auth.registerAccount({ name: "New listener", email: "new@example.com", password: "password123" }, meta);
+  assert.equal(registered.requiresOtp, true);
+  assert.equal(h.notifications.length, 0);
+  await auth.completeEmailLogin({ challengeId: registered.challengeId, code: h.code() }, meta);
+  assert.equal(h.notifications.length, 1);
+  assert.equal(h.notifications[0].event, "registration");
+  assert.equal(h.notifications[0].email, "new@example.com");
+  const phone = await auth.registerAccount({ phone: "+919999999999", password: "password123" }, meta);
+  assert.ok(phone.accessToken);
+  assert.equal(h.notifications.length, 2);
+  assert.equal(h.notifications[1].event, "registration");
+  assert.equal(h.notifications[1].phone, "+919999999999");
+});
+
+test("notification queue failure does not block successful phone login", async t => {
+  const h = harness(t);
+  t.mock.method(AdminAuthEmail, "create", async () => { throw new Error("database unavailable"); });
+  const result = await auth.loginAccount({ identifier: h.phone.phone, password: "password123" }, meta);
+  assert.ok(result.accessToken);
+  assert.equal(h.sessions.length, 1);
 });

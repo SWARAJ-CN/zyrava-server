@@ -3,10 +3,14 @@ import { fileURLToPath } from "node:url";
 import { readFile } from "node:fs/promises";
 import { env } from "../config/env.js";
 import { AppError } from "../utils/http.js";
+import { recordEmailFailure, recordEmailAccepted } from "./emailDiagnostics.js";
+import { sendGmailEmail } from "./gmailTransport.js";
+
+function deliveryError(reason) { return Object.assign(new Error("Email delivery failed"), { mailReason: reason }); }
 
 let transport;
 export function mailTransport() {
-  if (!env.smtpUser || !env.smtpPassword) throw new AppError(503, "Email verification is not configured yet.");
+  if (!env.smtpUser || !env.smtpPassword) throw deliveryError("missing_configuration");
   transport ??= nodemailer.createTransport({
     host: env.smtpHost, port: env.smtpPort, secure: env.smtpPort === 465,
     requireTLS: true, auth: { user: env.smtpUser, pass: env.smtpPassword },
@@ -28,12 +32,13 @@ export function otpEmail(code, purpose) {
   };
 }
 
-export async function sendOtpEmail(email, code, purpose) {
+export async function sendEmail(email, message, { idempotencyKey } = {}) {
   try {
-    const message = otpEmail(code, purpose);
-    if (env.emailProvider === "resend") {
-      if (!env.resendApiKey || !env.emailFrom) throw new Error("Email setup incomplete");
-      const attachments = await Promise.all(message.attachments.map(async attachment => ({
+    if (env.emailProvider === "gmail") {
+      await sendGmailEmail(email, message);
+    } else if (env.emailProvider === "resend") {
+      if (!env.resendApiKey || !env.emailFrom) throw deliveryError("missing_configuration");
+      const attachments = await Promise.all((message.attachments ?? []).map(async attachment => ({
         filename: attachment.filename,
         content: (await readFile(attachment.path)).toString("base64"),
         content_type: "image/png",
@@ -41,21 +46,38 @@ export async function sendOtpEmail(email, code, purpose) {
       })));
       const response = await fetch("https://api.resend.com/emails", {
         method: "POST",
-        headers: { Authorization: `Bearer ${env.resendApiKey}`, "Content-Type": "application/json" },
+        headers: { Authorization: `Bearer ${env.resendApiKey}`, "Content-Type": "application/json", ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}) },
         signal: AbortSignal.timeout(15_000),
         body: JSON.stringify({ from: env.emailFrom, to: [email], subject: message.subject, text: message.text, html: message.html, attachments }),
       });
       // Never log provider response bodies: they may include recipient details.
-      if (!response.ok) throw new Error("Email provider rejected delivery");
+      if (!response.ok) {
+        const detail = await response.json().catch(() => ({}));
+        // Inspect known phrases only to classify; never store or return provider text.
+        const explanation = String(detail.message || "");
+        const reason = response.status === 429 || /quota/i.test(explanation) ? "rate_limited"
+          : response.status === 401 || /api key|permission/i.test(explanation) ? "api_authentication"
+          : /only send testing emails/i.test(explanation) ? "testing_only"
+          : /domain.*not verified/i.test(explanation) ? "sender_not_verified" : "provider_rejected";
+        throw deliveryError(reason);
+      }
       const result = await response.json();
-      if (!result.id) throw new Error("Email provider did not accept delivery");
+      if (!result.id) throw deliveryError("provider_rejected");
     } else if (env.emailProvider === "smtp") {
       await mailTransport().sendMail({ from: { name: "ZYRAVA", address: env.smtpUser }, to: email, ...message });
     } else {
-      throw new Error("Unsupported email provider");
+      throw deliveryError("invalid_provider");
     }
-  } catch {
+    recordEmailAccepted();
+  } catch (error) {
     // Transport errors can contain credentials or recipients; do not log them.
-    throw new AppError(503, "We couldn't send the email. Please try again shortly.");
+    const mailCode = recordEmailFailure(error);
+    const failure = new AppError(503, "We couldn't send the email. Please try again shortly.");
+    failure.mailCode = mailCode;
+    throw failure;
   }
+}
+
+export async function sendOtpEmail(email, code, purpose) {
+  return sendEmail(email, otpEmail(code, purpose));
 }

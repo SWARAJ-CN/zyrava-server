@@ -1,6 +1,19 @@
 import { env } from "../src/config/env.js";
 import { mailTransport } from "../src/services/emailService.js";
-if (env.emailProvider === "resend") {
+import { gmailAccessToken } from "../src/services/gmailTransport.js";
+import { emailDiagnostics, recordEmailFailure } from "../src/services/emailDiagnostics.js";
+if (env.emailProvider === "gmail") {
+  const { missing } = emailDiagnostics();
+  if (missing.length) {
+    console.error(`Email setup incomplete: add ${missing.join(", ")} to the backend environment.`);
+    process.exitCode = 1;
+  } else {
+    try {
+      await gmailAccessToken();
+      console.log("Gmail OAuth token refresh succeeded over HTTPS. No email was sent. Test an OTP to verify Gmail API permissions and inbox delivery.");
+    } catch (error) { recordEmailFailure(error); process.exitCode = 1; }
+  }
+} else if (env.emailProvider === "resend") {
   const missing = [!env.resendApiKey && "RESEND_API_KEY", !env.emailFrom && "EMAIL_FROM"].filter(Boolean);
   if (missing.length) {
     console.error(`Email setup incomplete: add ${missing.join(", ")} to the backend environment.`);
@@ -9,7 +22,7 @@ if (env.emailProvider === "resend") {
     console.log("Resend HTTPS configuration is present. No email was sent; API key validity and sender-domain verification have not been tested. Confirm both in Resend, then test an OTP login.");
   }
 } else if (env.emailProvider !== "smtp") {
-  console.error("EMAIL_PROVIDER must be smtp or resend.");
+  console.error("EMAIL_PROVIDER must be smtp, gmail or resend.");
   process.exitCode = 1;
 } else {
   const missing = [!env.smtpUser && "SMTP_USER", !env.smtpPassword && "SMTP_PASSWORD"].filter(Boolean);

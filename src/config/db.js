@@ -14,6 +14,7 @@ import { ChatRequest } from "../models/ChatRequest.js";
 import { Conversation } from "../models/Conversation.js";
 import { Message } from "../models/Message.js";
 import { AppError } from "../utils/http.js";
+import { AdminAuthEmail } from "../models/AdminAuthEmail.js";
 
 /**
  * One pooled connection for the whole process. Render's free instance is
@@ -55,6 +56,7 @@ export async function connectDb() {
       ChatRequest.init(),
       Conversation.init(),
       Message.init(),
+      AdminAuthEmail.init(),
     ]);
   }
   return mongoose.connection;

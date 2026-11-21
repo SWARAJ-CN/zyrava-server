@@ -221,7 +221,7 @@ Responses use `Cache-Control: no-store`. Relevant visible clients check every fi
 
 ## Email sign-in verification and password recovery
 
-Email delivery supports Nodemailer SMTP or Resend over HTTPS. Both send six-digit codes with the bundled ZYRAVA logo embedded in the email. For SMTP: Configure these **backend-only** environment variables on each deployed server (never use a public frontend environment variable):
+Email delivery supports Nodemailer SMTP, Gmail API over HTTPS, or Resend over HTTPS. Both send six-digit codes with the bundled ZYRAVA logo embedded in the email. For SMTP: Configure these **backend-only** environment variables on each deployed server (never use a public frontend environment variable):
 
 - `EMAIL_PROVIDER=smtp`
 - `SMTP_HOST=smtp.gmail.com`
@@ -242,7 +242,7 @@ Verification: `node --test tests/email-auth.test.js` tests challenge replay/race
 
 ### Render Free: send over HTTPS
 
-Render Free blocks outbound SMTP ports 25, 465 and 587 (https://render.com/docs/free). Gmail app passwords cannot bypass this. Startup no longer connects to SMTP, so a mail outage does not crash the entire server. This fixes the startup blocker, **not** Gmail delivery on Render Free.
+Render Free blocks outbound SMTP ports 25, 465 and 587 (https://render.com/docs/free). Gmail app passwords cannot bypass this. **Gmail-only setup without a custom domain:** use the Gmail HTTPS transport in [GMAIL_RENDER_SETUP.md](GMAIL_RENDER_SETUP.md). Startup no longer connects to SMTP, so a mail outage does not crash the entire server. This fixes the startup blocker, **not** Gmail delivery on Render Free.
 
 Use the HTTPS transport by setting these in Render → your backend → Environment, then redeploy:
 
@@ -258,3 +258,17 @@ Create a Resend account, add a domain you own, and publish its requested SPF/DKI
 `npm run mail:verify` verifies SMTP authentication without sending mail, or checks required Resend settings locally (it does not validate the Resend API key/domain). After deployment, test one real email login and password reset. HTTPS delivery failures/timeouts return a sanitized error and do not fall back to password-only login. Unknown reset addresses retain their generic response. No automatic retries that might send duplicate OTPs are performed.
 
 For inbox placement, use a consistent verified sender and keep transactional emails separate from marketing. SPF/DKIM/DMARC help establish authenticity but cannot guarantee avoiding spam. Both OTP screens remind users to check Spam/Junk, mark legitimate ZYRAVA email “Not spam”, and offer an inbox shortcut without placing their address or code in the link.
+
+### Admin user emails
+
+The Users table's Send email composer uses authenticated `GET /api/admin/users/:id/email/templates` and `POST /api/admin/users/:id/email`. Four personalized drafts cover returning listeners, rare activity, a funny note, and Spam/Junk help; administrators can edit subject/body or type their own message. Submission accepts `{ template, subject, message }` only. The server resolves the stored recipient, rejects phone-only accounts, escapes HTML, and sends the branded message with the same SMTP/Resend transport as OTP. OTP templates and authentication behavior are unchanged.
+
+Mail submission is limited to 30 attempts per admin per hour and one successful submission per recipient per minute (in-memory single-instance limits). Success reports provider acceptance, not inbox delivery. There is no background campaign or automatic sending. Tests mock delivery and do not email real users: `node --test tests/admin-email.test.js`.
+
+### Admin sign-in notifications and mail diagnostics
+
+New registrations queue a notification only after the account completes sign-in (email OTP verification where enabled). Subsequent successful logins also notify `ADMIN_NOTIFICATION_EMAIL` (default `zyrava00@gmail.com`). Phone-only registration/login includes the phone number. Failed credentials, incomplete OTP challenges, reset requests and refresh-token rotation do not send notifications. Each notice includes the name, email/phone, account ID and UTC event time; never a password, OTP, session token, IP or user-agent.
+
+`ADMIN_AUTH_EMAILS_ENABLED=false` disables notifications. The MongoDB `adminauthemails` outbox retains entries for seven days and survives server restarts. A worker processes one event every five seconds while the API is running, with leased claims and up to six attempts using backoff. Render Free sleep delays pending work until wake-up. Notification delivery is separate from the sign-in response. A database queue failure is logged without blocking authentication. SMTP/Gmail retries after an uncertain response can duplicate mail; Resend gets a stable idempotency key.
+
+Admin **System → Email delivery** (also protected `GET /api/admin/system/email`) shows provider, missing environment-variable names, Render SMTP warnings, and safe failure categories. It never exposes credential values, recipient-specific provider errors, or OTPs. Runtime delivery diagnostics reset on restart; queued notification records persist. Provider acceptance is not proof of inbox delivery. If EMAIL_PROVIDER is unset, a configured Gmail refresh token selects Gmail; otherwise a Resend key selects Resend, then SMTP is the fallback. Explicit EMAIL_PROVIDER always wins.
