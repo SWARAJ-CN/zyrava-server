@@ -3,3 +3,5 @@ node_modules
 *.log
 .DS_Store
 .env.render-admin
+.gmail-oauth-client.json
+.env.gmail-render*

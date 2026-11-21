@@ -8,10 +8,18 @@ This setup needs Google OAuth authorization for **zyrava00@gmail.com**. A Gmail 
 
 1. Open [Google Cloud Console](https://console.cloud.google.com/), select/create your project, and enable **Gmail API** in APIs & Services → Library.
 2. Configure the project's Google Auth Platform/OAuth consent screen. For an initial test, add `zyrava00@gmail.com` as a test user. The required scope is `https://www.googleapis.com/auth/gmail.send`; this allows sending without reading the inbox. Complete any Google consent/verification requirements shown for your application.
-3. Create an OAuth client ID of type **Web application**. Add this exact authorized redirect URI: `https://developers.google.com/oauthplayground`. Keep the resulting client ID and client secret private.
-4. Open Google's [OAuth Playground](https://developers.google.com/oauthplayground/). In its settings, choose **Google** endpoints, **Server-side** flow, **Offline** access, and **Use your own OAuth credentials**. Enter your client ID and secret. Using your own credentials avoids Playground's default 24-hour refresh-token revocation.
-5. Enter the `https://www.googleapis.com/auth/gmail.send` scope and select **Authorize APIs**. Sign in as **zyrava00@gmail.com** and approve the sending permission yourself.
-6. Select **Exchange authorization code for tokens**. Copy the **refresh token**, not the short-lived access token. Do not share a Playground URL containing tokens.
+3. Create an OAuth client ID of type **Web application**. Add this exact authorized redirect URI: `http://127.0.0.1:53682/oauth2callback`.
+4. Download the client JSON and save it as `/home/swaraj/Documents/zyrava/zyrava-server/.gmail-oauth-client.json`. This filename is ignored by Git; keep the contents private.
+5. On your computer, run:
+
+   ```bash
+   cd /home/swaraj/Documents/zyrava/zyrava-server
+   npm run mail:gmail:setup
+   ```
+
+6. Open the Google link printed in the terminal **on the same computer**. Choose **zyrava00@gmail.com** and approve Gmail sending. The command validates the callback state and exchanges the one-time code using PKCE. It requests sending permission only, not inbox read access.
+7. After Google returns to the local callback, the command writes `.env.gmail-render` with owner-only file permissions. It does not print tokens, overwrite your working local `.env`, or send any email.
+8. Copy the generated settings into Render's backend Environment settings, save, and redeploy. The private file is ignored by Git and must not be pasted into chat. Your local SMTP app password alone is not enough for this deployment.
 
 An external OAuth app left in **Testing** issues Gmail-scope refresh tokens that expire after seven days. For sustained production use, complete Google's applicable requirements, change the publishing status appropriately, and authorize again. Password changes, revoked permissions, or Google account policies can also require reauthorization. See [Google's refresh-token guidance](https://developers.google.com/identity/protocols/oauth2#expiration).
 
