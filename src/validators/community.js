@@ -77,5 +77,5 @@ export const sendMessageSchema = bodyOnly(
 );
 
 export const markReadSchema = bodyOnly(
-  z.object({ conversationId: idSchema }).strict()
+  z.object({ conversationId: idSchema, messageIds: z.array(idSchema).min(1).max(100).optional() }).strict()
 );

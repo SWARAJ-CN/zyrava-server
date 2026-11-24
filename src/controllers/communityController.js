@@ -76,9 +76,9 @@ export const sendMessage = asyncHandler(async (req, res) => {
 });
 
 export const markRead = asyncHandler(async (req, res) => {
-  const { conversationId } = req.valid.body;
-  const result = await community.markRead(req.userId, conversationId);
+  const { conversationId, messageIds } = req.valid.body;
+  const result = await community.markRead(req.userId, conversationId, messageIds);
   const memberIds = await community.conversationAudience(conversationId);
-  push.conversationRead(memberIds, conversationId, req.userId);
+  push.conversationRead(memberIds, conversationId, req.userId, result);
   res.json(result);
 });

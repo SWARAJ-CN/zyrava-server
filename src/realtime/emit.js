@@ -76,9 +76,11 @@ export async function conversationUpdated(memberIds, conversationId) {
   }
 }
 
-export function conversationRead(memberIds, conversationId, readerId) {
+export function conversationRead(memberIds, conversationId, readerId, receipt) {
   emitToUsers(memberIds, "conversation:read", {
     conversationId: asId(conversationId),
     readerId: asId(readerId),
+    messageIds: receipt.messageIds,
+    unread: receipt.unread,
   });
 }

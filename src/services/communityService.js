@@ -47,6 +47,7 @@ function messageItem(message, viewerId) {
     clientId: message.clientId ?? "",
     createdAt: message.createdAt,
     mine: asId(message.from) === asId(viewerId),
+    seen: (message.readBy ?? []).some((reader) => asId(reader) !== asId(message.from)),
   };
 }
 
@@ -416,18 +417,32 @@ export async function sendMessage(viewerId, conversationId, text, clientId = "")
   };
 }
 
-export async function markRead(viewerId, conversationId) {
+export async function markRead(viewerId, conversationId, messageIds) {
   const conversation = await conversationMembers(conversationId);
   await assertMember(conversation, viewerId);
-  await Message.updateMany(
-    {
-      conversation: conversation._id,
-      from: mongoose.trusted({ $ne: viewerId }),
-      readBy: mongoose.trusted({ $ne: viewerId }),
-    },
-    { $addToSet: { readBy: viewerId } }
-  );
-  return { conversationId: asId(conversation._id) };
+  const filter = {
+    conversation: conversation._id,
+    from: mongoose.trusted({ $ne: viewerId }),
+    ...(messageIds
+      ? { _id: mongoose.trusted({ $in: messageIds }) }
+      : { readBy: mongoose.trusted({ $ne: viewerId }) }),
+  };
+  // Snapshot exact IDs before writing: a concurrent new message must not be
+  // acknowledged just because it arrived while this read request was running.
+  const rows = await Message.find(filter).select("_id").lean();
+  const ids = rows.map((message) => asId(message._id));
+  if (ids.length) {
+    await Message.updateMany(
+      { conversation: conversation._id, _id: mongoose.trusted({ $in: ids }) },
+      { $addToSet: { readBy: viewerId } }
+    );
+  }
+  const unread = await Message.countDocuments({
+    conversation: conversation._id,
+    from: mongoose.trusted({ $ne: viewerId }),
+    readBy: mongoose.trusted({ $ne: viewerId }),
+  });
+  return { conversationId: asId(conversation._id), messageIds: ids, unread };
 }
 
 export async function unreadTotal(viewerId) {
