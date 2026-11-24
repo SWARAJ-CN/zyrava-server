@@ -5,9 +5,9 @@ import { env } from "../config/env.js";
 const ISSUER = "zyrava";
 const AUDIENCE = "zyrava-web";
 
-export function signAccessToken(user, emailOtpVerified = false) {
+export function signAccessToken(user) {
   return jwt.sign(
-    { sub: String(user._id), typ: "access", av: user.authVersion ?? 0, eov: emailOtpVerified },
+    { sub: String(user._id), typ: "access", av: user.authVersion ?? 0 },
     env.accessSecret,
     { expiresIn: env.accessTtl, issuer: ISSUER, audience: AUDIENCE }
   );

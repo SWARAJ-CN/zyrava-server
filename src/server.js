@@ -5,18 +5,13 @@ import { connectDb, disconnectDb } from "./config/db.js";
 import { attachRealtime } from "./realtime/io.js";
 
 
-import { prepareEmailAuthentication } from "./services/emailAuthRollout.js";
-import { startAdminAuthEmailWorker } from "./services/adminAuthEmailService.js";
-
 async function start() {
   await connectDb();
-  await prepareEmailAuthentication();
 
   // One HTTP server for both halves of the app: the REST API and, riding on
   // the same port, the Socket.IO endpoint the community live-updates.
   const server = createServer(app);
   const io = attachRealtime(server);
-  const stopAdminAuthEmails = startAdminAuthEmailWorker();
 
   server.listen(env.port, () => {
     console.log(`[zyrava] API listening on :${env.port} (${env.isProd ? "production" : "development"})`);
@@ -27,7 +22,6 @@ async function start() {
   server.headersTimeout = 66_000;
 
   const shutdown = async (signal) => {
-    stopAdminAuthEmails();
     console.log(`[zyrava] ${signal} received — draining`);
     server.close(async () => {
       // Last, so the websocket only goes away once HTTP has stopped accepting.

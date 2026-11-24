@@ -13,7 +13,6 @@ const sessionSchema = new mongoose.Schema(
       index: true,
     },
     tokenHash: { type: String, required: true, unique: true },
-    emailOtpVerified: { type: Boolean, default: false },
     authVersion: { type: Number, default: 0 },
     remember: { type: Boolean, default: false },
     userAgent: { type: String, maxlength: 220 },

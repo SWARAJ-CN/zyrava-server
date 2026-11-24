@@ -69,11 +69,3 @@ export const loginSchema = z
     params: z.object({}).strict(),
   })
   .strict();
-
-const challengeId = z.string().regex(/^[a-f0-9]{64}$/, "Start verification again.");
-const code = z.string().regex(/^\d{6}$/, "Enter the six-digit code.");
-const authBody = (body) => z.object({ body: body.strict(), query: z.object({}).strict(), params: z.object({}).strict() }).strict();
-export const verifyEmailSchema = authBody(z.object({ challengeId, code }));
-export const resendEmailSchema = authBody(z.object({ challengeId, purpose: z.enum(["login", "reset"]) }));
-export const requestResetSchema = authBody(z.object({ email: emailField }));
-export const finishResetSchema = authBody(z.object({ resetToken: challengeId, password: passwordField }));

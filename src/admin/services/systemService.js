@@ -2,7 +2,6 @@ import { adminEnv } from "../env.js";
 import { dbStatus, database } from "../../config/db.js";
 import { cacheInfo } from "../lib/cache.js";
 import { COLLECTIONS } from "../lib/collections.js";
-import { emailDiagnostics } from "../../services/emailDiagnostics.js";
 
 const KNOWN = new Set(Object.values(COLLECTIONS));
 
@@ -29,7 +28,6 @@ export async function getSystem() {
 
   return {
     generatedAt: new Date(),
-    email: emailDiagnostics(),
     admin: { email: adminEnv.email },
     config: {
       environment: process.env.NODE_ENV === "production" ? "production" : "development",

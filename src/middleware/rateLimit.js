@@ -104,8 +104,3 @@ export const chatRequestLimiter = rateLimit({
   keyGenerator: accountKey,
   message: message("You have sent enough requests for now. Try again later."),
 });
-
-export const otpLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: "draft-7", legacyHeaders: false,
-  message: message("Too many verification requests. Please try again in a few minutes."),
-});

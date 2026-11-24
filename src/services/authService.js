@@ -13,10 +13,6 @@ import { accountExperience } from "./accountExperience.js";
 
 import { publicCustomization } from "../models/customizationFields.js";
 
-import { env } from "../config/env.js";
-import { startEmailChallenge, verifyEmailChallenge } from "./emailOtpService.js";
-import { queueAdminAuthEmail } from "./adminAuthEmailService.js";
-
 const BCRYPT_ROUNDS = 10;
 /** A real hash so a missing account costs the same compare as a wrong password. */
 const DUMMY_HASH = bcrypt.hashSync("zyrava-invalid-password", BCRYPT_ROUNDS);
@@ -33,7 +29,7 @@ function publicUser(user) {
   };
 }
 
-async function issueSession(user, remember, meta, emailOtpVerified = false) {
+async function issueSession(user, remember, meta) {
   const refreshToken = newRefreshToken();
   const expiresAt = refreshExpiry(remember);
 
@@ -41,7 +37,6 @@ async function issueSession(user, remember, meta, emailOtpVerified = false) {
     user: user._id,
     tokenHash: hashToken(refreshToken),
     remember,
-    emailOtpVerified,
     authVersion: user.authVersion ?? 0,
     expiresAt,
     userAgent: meta.userAgent,
@@ -50,7 +45,7 @@ async function issueSession(user, remember, meta, emailOtpVerified = false) {
 
   return {
     user: publicUser(user),
-    accessToken: signAccessToken(user, emailOtpVerified),
+    accessToken: signAccessToken(user),
     refreshToken,
     expiresAt,
   };
@@ -75,9 +70,7 @@ export async function registerAccount(input, meta) {
     passwordHash,
   });
 
-  if (env.emailOtpEnabled && user.email) return startEmailChallenge(user, "login", input.remember, "registration");
   const result = await issueSession(user, input.remember, meta);
-  await queueAdminAuthEmail(user, "registration");
   return result;
 }
 
@@ -98,10 +91,8 @@ export async function loginAccount(input, meta) {
     throw new AppError(401, "Invalid email, phone number or password.");
   }
 
-  if (env.emailOtpEnabled && user.email) return startEmailChallenge(user, "login", input.remember);
   const result = await issueSession(user, input.remember, meta);
   await User.updateOne({ _id: user._id }, { $set: { lastLoginAt: new Date() } });
-  await queueAdminAuthEmail(user, "login");
   return result;
 }
 
@@ -117,10 +108,10 @@ export async function rotateSession(refreshToken, meta) {
   const user = await User.findById(session.user);
   if (!user) throw new AppError(401, "This account no longer exists.");
 
-  if ((session.authVersion ?? 0) !== (user.authVersion ?? 0) || (env.emailOtpEnabled && user.email && !session.emailOtpVerified)) {
-    throw new AppError(401, "Please sign in again and verify your email.");
+  if ((session.authVersion ?? 0) !== (user.authVersion ?? 0)) {
+    throw new AppError(401, "Your session has expired. Sign in again.");
   }
-  return issueSession(user, session.remember, meta, session.emailOtpVerified);
+  return issueSession(user, session.remember, meta);
 }
 
 export async function revokeSession(refreshToken) {
@@ -132,12 +123,4 @@ export async function findUser(userId) {
   const user = await User.findById(userId).select("name email phone createdAt customization").lean();
   if (!user) throw new AppError(404, "Account not found.");
   return publicUser(user);
-}
-
-export async function completeEmailLogin(input, meta) {
-  const result = await verifyEmailChallenge(input.challengeId, input.code, "login");
-  await User.updateOne({ _id: result.user._id }, { $set: { lastLoginAt: new Date() } });
-  const session = await issueSession(result.user, result.remember, meta, true);
-  await queueAdminAuthEmail(result.user, result.authEvent);
-  return session;
 }

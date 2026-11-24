@@ -1,6 +1,5 @@
 import { User } from "../models/User.js";
 import { AppError } from "../utils/http.js";
-import { env } from "../config/env.js";
 import { verifyAccessToken } from "../utils/tokens.js";
 
 /** Bearer access token, stateless and never stored in a cookie. */
@@ -27,8 +26,7 @@ export async function requireAuth(req, res, next) {
 
 export async function validateAccessSession(token) {
   const payload = verifyAccessToken(token);
-  const user = await User.findById(payload.sub).select("email authVersion").lean();
-  if (!user || (payload.av ?? 0) !== (user.authVersion ?? 0) ||
-      (env.emailOtpEnabled && user.email && payload.eov !== true)) throw new AppError(401, "Session expired");
+  const user = await User.findById(payload.sub).select("authVersion").lean();
+  if (!user || (payload.av ?? 0) !== (user.authVersion ?? 0)) throw new AppError(401, "Session expired");
   return payload;
 }
