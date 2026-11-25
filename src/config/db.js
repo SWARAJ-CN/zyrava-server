@@ -12,6 +12,7 @@ import { HistoryEvent } from "../models/historyEvent.js";
 import { KnownSong } from "../models/knownSong.js";
 import { ChatRequest } from "../models/ChatRequest.js";
 import { Conversation } from "../models/Conversation.js";
+import { MediaUpload } from "../models/MediaUpload.js";
 import { Message } from "../models/Message.js";
 import { AppError } from "../utils/http.js";
 
@@ -55,6 +56,7 @@ export async function connectDb() {
       ChatRequest.init(),
       Conversation.init(),
       Message.init(),
+      MediaUpload.init(),
     ]);
   }
   return mongoose.connection;

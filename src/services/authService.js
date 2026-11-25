@@ -21,6 +21,7 @@ function publicUser(user) {
   return {
     id: String(user._id),
     name: user.name ?? null,
+    avatarUrl: user.avatar?.url ?? null,
     email: user.email ?? null,
     phone: user.phone ?? null,
     createdAt: user.createdAt,

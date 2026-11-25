@@ -18,6 +18,8 @@ function fixture(t) {
   const query=value=>({select(){return this},sort(){return this},limit(){return this},lean:async()=>value});
   const matches=(row,filter)=>Object.entries(filter).every(([key,value])=>{
     const actual=row[key];
+    // MongoDB null predicates include fields absent on older messages.
+    if (value === null) return actual == null;
     if(value && typeof value==='object') {
       if('$in' in value)return value.$in.map(String).includes(String(actual));
       if('$ne' in value)return !(Array.isArray(actual)?actual.map(String):[String(actual)]).includes(String(value.$ne));

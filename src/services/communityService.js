@@ -1,4 +1,7 @@
 import mongoose from "mongoose";
+import { claimUpload } from "./mediaService.js";
+import { MediaUpload } from "../models/MediaUpload.js";
+import { randomUUID } from "node:crypto";
 import { ChatRequest } from "../models/ChatRequest.js";
 import { Conversation } from "../models/Conversation.js";
 import { Message } from "../models/Message.js";
@@ -23,6 +26,7 @@ function person(user) {
   return {
     id: asId(user._id ?? user.id),
     name: user.name?.trim() || "Music lover",
+    avatarUrl: user.avatar?.url ?? null,
     lastSeenAt: user.lastSeenAt ?? null,
     online: isOnline(user._id ?? user.id),
   };
@@ -38,12 +42,28 @@ function requestItem(request, user, direction) {
   };
 }
 
-function messageItem(message, viewerId) {
+export function replyView(message) {
+  if (!message) return null;
+  return { id: asId(message._id), from: asId(message.from), text: message.deletedAt ? "" : message.text,
+    kind: message.deletedAt ? null : message.attachment?.kind ?? null, deleted: !!message.deletedAt };
+}
+
+export function assertChatWritable(conversation) {
+  if (conversation.blockedBy?.length) throw new AppError(403, "Messaging is unavailable in this conversation.");
+}
+
+function messageItem(message, viewerId, reply = null) {
   return {
     id: asId(message._id),
     conversationId: asId(message.conversation),
     from: asId(message.from),
-    text: message.text,
+    text: message.deletedAt ? "" : message.text,
+    attachment: message.deletedAt ? null : message.attachment ?? null,
+    reply: message.deletedAt ? null : reply,
+    editedAt: message.editedAt ?? null,
+    deleted: !!message.deletedAt,
+    revision: message.revision ?? 0,
+    reactions: message.deletedAt ? [] : Object.entries(message.reactions instanceof Map ? Object.fromEntries(message.reactions) : message.reactions ?? {}).map(([userId, emoji]) => ({ userId, emoji })),
     clientId: message.clientId ?? "",
     createdAt: message.createdAt,
     mine: asId(message.from) === asId(viewerId),
@@ -55,7 +75,7 @@ async function usersByIds(ids) {
   if (!ids.length) return new Map();
   // The connection sanitizes filters, so an operator here is declared trusted.
   const rows = await User.find({ _id: mongoose.trusted({ $in: ids }), ...communityUserFilter() })
-    .select("name lastSeenAt")
+    .select("name lastSeenAt avatar")
     .lean();
   return new Map(rows.map((row) => [asId(row._id), row]));
 }
@@ -85,17 +105,14 @@ async function assertMember(conversation, userId) {
   }
 }
 
-async function conversationSummary(conversation, viewerId, otherUser, unread = 0) {
+async function conversationSummary(conversation, viewerId, otherUser, unread = 0, latest) {
+  const last = latest === undefined ? await Message.findOne({ conversation: conversation._id, hiddenFor: mongoose.trusted({ $ne: viewerId }) }).sort({ createdAt: -1 }).lean() : latest;
   return {
     id: asId(conversation._id),
     user: person(otherUser),
-    lastMessage: conversation.lastMessageText
-      ? {
-          text: conversation.lastMessageText,
-          from: asId(conversation.lastMessageFrom),
-          at: conversation.lastMessageAt,
-        }
-      : null,
+    blockedByMe: (conversation.blockedBy ?? []).some(id => asId(id) === asId(viewerId)),
+    messagingDisabled: !!conversation.blockedBy?.length,
+    lastMessage: last ? { text: last.deletedAt ? "Message deleted" : last.text || ({ image: "Photo", video: "Video", audio: "Voice message" }[last.attachment?.kind] ?? "Attachment"), from: asId(last.from), at: last.createdAt } : null,
     unread,
     updatedAt: conversation.lastMessageAt ?? conversation.updatedAt,
     viewer: asId(viewerId),
@@ -114,7 +131,7 @@ export async function listPeople(viewerId, query = "") {
   }
 
   const users = await User.find(filter)
-    .select("name lastSeenAt")
+    .select("name lastSeenAt avatar")
     .sort({ lastSeenAt: -1, name: 1 })
     .limit(60)
     .lean();
@@ -196,8 +213,8 @@ export async function sendRequest(viewerId, targetId) {
     throw new AppError(400, "You cannot send a chat request to yourself.");
   }
   const [target, viewer] = await Promise.all([
-    User.findOne({ _id: targetId, ...communityUserFilter() }).select("name lastSeenAt").lean(),
-    User.findOne({ _id: viewerId, ...communityUserFilter() }).select("name lastSeenAt").lean(),
+    User.findOne({ _id: targetId, ...communityUserFilter() }).select("name lastSeenAt avatar").lean(),
+    User.findOne({ _id: viewerId, ...communityUserFilter() }).select("name lastSeenAt avatar").lean(),
   ]);
   if (!target || !viewer) throw new AppError(404, "That listener no longer exists.");
 
@@ -205,6 +222,7 @@ export async function sendRequest(viewerId, targetId) {
     pairKey: pairKey(viewerId, targetId),
   }).lean();
   if (existingConversation) {
+    assertChatWritable(existingConversation);
     return {
       status: "accepted",
       conversation: await conversationSummary(existingConversation, viewerId, target),
@@ -261,8 +279,8 @@ export async function respondRequest(viewerId, requestId, accept) {
   if (!request) throw new AppError(404, "That request is no longer waiting.");
 
   const [viewer, requester] = await Promise.all([
-    User.findOne({ _id: viewerId, ...communityUserFilter() }).select("name lastSeenAt").lean(),
-    User.findOne({ _id: request.from, ...communityUserFilter() }).select("name lastSeenAt").lean(),
+    User.findOne({ _id: viewerId, ...communityUserFilter() }).select("name lastSeenAt avatar").lean(),
+    User.findOne({ _id: request.from, ...communityUserFilter() }).select("name lastSeenAt avatar").lean(),
   ]);
   if (!viewer || !requester) throw new AppError(404, "That listener no longer exists.");
 
@@ -308,24 +326,22 @@ export async function listConversations(viewerId) {
   const users = await usersByIds(otherIds);
 
   const conversationIds = conversations.map((conversation) => conversation._id);
-  const unreadRows = await Message.aggregate([
-    {
-      $match: {
-        conversation: { $in: conversationIds },
-        from: { $ne: new mongoose.Types.ObjectId(asId(viewerId)) },
-        readBy: { $ne: new mongoose.Types.ObjectId(asId(viewerId)) },
-      },
-    },
-    { $group: { _id: "$conversation", count: { $sum: 1 } } },
+  const self = new mongoose.Types.ObjectId(asId(viewerId));
+  const visibleRows = await Message.aggregate([
+    { $match: { conversation: { $in: conversationIds }, hiddenFor: { $ne: self } } },
+    { $sort: { createdAt: -1 } },
+    { $group: { _id: "$conversation", latest: { $first: "$$ROOT" }, count: { $sum: { $cond: [
+      { $and: [{ $ne: ["$from", self] }, { $not: [{ $in: [self, { $ifNull: ["$readBy", []] }] }] }, { $eq: [{ $ifNull: ["$deletedAt", null] }, null] }] }, 1, 0,
+    ] } } } },
   ]);
-  const unreadById = new Map(unreadRows.map((row) => [asId(row._id), row.count]));
+  const visibleById = new Map(visibleRows.map(row => [asId(row._id), row]));
 
   const summaries = await Promise.all(
     conversations.map((conversation) => {
       const otherId = conversation.members.map(asId).find((member) => member !== asId(viewerId));
       const other = users.get(otherId);
       return other
-        ? conversationSummary(conversation, viewerId, other, unreadById.get(asId(conversation._id)) ?? 0)
+        ? conversationSummary(conversation, viewerId, other, visibleById.get(asId(conversation._id))?.count ?? 0, visibleById.get(asId(conversation._id))?.latest ?? null)
         : null;
     })
   );
@@ -336,7 +352,7 @@ export async function listMessages(viewerId, conversationId, before) {
   const conversation = await conversationMembers(conversationId);
   await assertMember(conversation, viewerId);
 
-  const filter = { conversation: conversation._id };
+  const filter = { conversation: conversation._id, hiddenFor: mongoose.trusted({ $ne: viewerId }) };
   if (before) {
     const date = new Date(before);
     if (!Number.isNaN(date.getTime())) filter.createdAt = mongoose.trusted({ $lt: date });
@@ -347,18 +363,23 @@ export async function listMessages(viewerId, conversationId, before) {
     .limit(MAX_PAGE)
     .lean();
 
-  return rows.reverse().map((message) => messageItem(message, viewerId));
+  const replyIds = rows.filter(row => row.replyTo).map(row => row.replyTo);
+  const replies = replyIds.length ? await Message.find({ _id: mongoose.trusted({ $in: replyIds }), conversation: conversation._id, hiddenFor: mongoose.trusted({ $ne: viewerId }) }).lean() : [];
+  const byId = new Map(replies.map(row => [asId(row._id), replyView(row)]));
+  return rows.reverse().map(message => messageItem(message, viewerId, message.replyTo ? byId.get(asId(message.replyTo)) ?? { id: asId(message.replyTo), from: "", text: "", kind: null, deleted: true } : null));
 }
 
-export async function sendMessage(viewerId, conversationId, text, clientId = "") {
+export async function sendMessage(viewerId, conversationId, text, clientId = "", attachmentId = null, replyTo = null) {
   const clean = String(text ?? "").trim();
-  if (!clean) throw new AppError(422, "Write a message first.");
+  if (!clean && !attachmentId) throw new AppError(422, "Write a message first.");
   if (clean.length > MAX_MESSAGE) {
     throw new AppError(422, `Messages are up to ${MAX_MESSAGE} characters.`);
   }
 
   const conversation = await conversationMembers(conversationId);
   await assertMember(conversation, viewerId);
+
+  assertChatWritable(conversation);
 
   const clientRef = String(clientId ?? "").slice(0, 64);
 
@@ -375,7 +396,7 @@ export async function sendMessage(viewerId, conversationId, text, clientId = "")
     }).lean();
     if (already) {
       return {
-        message: messageItem(already, viewerId),
+        message: messageItem(already, viewerId, already.replyTo ? replyView(await Message.findOne({ _id: already.replyTo, conversation: conversation._id, hiddenFor: mongoose.trusted({ $ne: viewerId }) }).lean()) : null),
         memberIds: conversation.members.map(asId),
         conversationId: asId(conversation._id),
         duplicate: true,
@@ -383,19 +404,30 @@ export async function sendMessage(viewerId, conversationId, text, clientId = "")
     }
   }
 
-  const message = await Message.create({
+  const reply = replyTo ? await Message.findOne({ _id: replyTo, conversation: conversation._id, hiddenFor: mongoose.trusted({ $ne: viewerId }), deletedAt: null }).lean() : null;
+  if (replyTo && !reply) throw new AppError(422, "That message is no longer available to reply to.");
+  const upload = attachmentId ? await claimUpload(viewerId, attachmentId, "chat", clientRef || randomUUID(), conversationId) : null;
+  let message;
+  try {
+    message = await Message.create({
     conversation: conversation._id,
     from: viewerId,
     text: clean,
+    attachment: upload?.attachment ?? null,
+    replyTo: reply?._id ?? null,
     clientId: clientRef,
     readBy: [viewerId],
-  });
+    });
+  } catch (error) {
+    if (upload) await MediaUpload.updateOne({ _id: upload._id, usedBy: upload.usedBy }, { $set: { usedBy: null } });
+    throw error;
+  }
 
   await Conversation.updateOne(
     { _id: conversation._id },
     {
       $set: {
-        lastMessageText: clean,
+        lastMessageText: clean || ({image: "Photo", video: "Video", audio: "Audio"}[upload?.kind] ?? "Attachment"),
         lastMessageFrom: viewerId,
         lastMessageAt: message.createdAt,
       },
@@ -403,12 +435,13 @@ export async function sendMessage(viewerId, conversationId, text, clientId = "")
   );
 
   return {
-    message: messageItem(message, viewerId),
+    message: messageItem(message, viewerId, replyView(reply)),
     raw: {
       id: asId(message._id),
       conversationId: asId(message.conversation),
       from: asId(message.from),
       text: message.text,
+    attachment: message.attachment ?? null,
       clientId: message.clientId ?? "",
       createdAt: message.createdAt,
     },
@@ -422,6 +455,8 @@ export async function markRead(viewerId, conversationId, messageIds) {
   await assertMember(conversation, viewerId);
   const filter = {
     conversation: conversation._id,
+    hiddenFor: mongoose.trusted({ $ne: viewerId }),
+    deletedAt: null,
     from: mongoose.trusted({ $ne: viewerId }),
     ...(messageIds
       ? { _id: mongoose.trusted({ $in: messageIds }) }
@@ -439,6 +474,8 @@ export async function markRead(viewerId, conversationId, messageIds) {
   }
   const unread = await Message.countDocuments({
     conversation: conversation._id,
+    hiddenFor: mongoose.trusted({ $ne: viewerId }),
+    deletedAt: null,
     from: mongoose.trusted({ $ne: viewerId }),
     readBy: mongoose.trusted({ $ne: viewerId }),
   });
@@ -453,6 +490,8 @@ export async function unreadTotal(viewerId) {
   if (!conversations.length) return 0;
   return Message.countDocuments({
     conversation: mongoose.trusted({ $in: conversations.map((conversation) => conversation._id) }),
+    hiddenFor: mongoose.trusted({ $ne: viewerId }),
+    deletedAt: null,
     from: mongoose.trusted({ $ne: viewerId }),
     readBy: mongoose.trusted({ $ne: viewerId }),
   });
@@ -487,15 +526,16 @@ export async function conversationAudience(conversationId) {
  * member of it. Doubles as the socket layer's membership check.
  */
 export async function conversationPeers(conversationId, viewerId) {
-  const conversation = await Conversation.findById(conversationId).select("members").lean();
+  const conversation = await Conversation.findById(conversationId).select("members blockedBy").lean();
   if (!conversation) return [];
+  assertChatWritable(conversation);
   await assertMember(conversation, viewerId);
   return conversation.members.map(asId).filter((member) => member !== asId(viewerId));
 }
 
 /** A profile by id, in the same shape every other list returns. */
 export async function personView(userId) {
-  const user = await User.findOne({ _id: userId, ...communityUserFilter() }).select("name lastSeenAt").lean();
+  const user = await User.findOne({ _id: userId, ...communityUserFilter() }).select("name lastSeenAt avatar").lean();
   return user ? person(user) : null;
 }
 
@@ -519,9 +559,27 @@ export async function conversationSummaryFor(viewerId, conversationId) {
   const self = new mongoose.Types.ObjectId(asId(viewerId));
   const unread = await Message.countDocuments({
     conversation: conversation._id,
+    hiddenFor: mongoose.trusted({ $ne: viewerId }),
+    deletedAt: null,
     from: mongoose.trusted({ $ne: self }),
     readBy: mongoose.trusted({ $ne: self }),
   });
 
   return conversationSummary(conversation, viewerId, other, unread);
+}
+
+/** Shared authorization for issuing and confirming media upload grants. */
+export async function authorizeConversation(viewerId, conversationId, write = true) {
+  const conversation = await conversationMembers(conversationId);
+  await assertMember(conversation, viewerId);
+  if (write) assertChatWritable(conversation);
+  return conversation;
+}
+
+/** Build live updates separately, including the recipient's reply visibility. */
+export async function messageViewFor(viewerId, conversationId, messageId) {
+  const message = await Message.findOne({ _id: messageId, conversation: conversationId, hiddenFor: mongoose.trusted({ $ne: viewerId }) }).lean();
+  if (!message) return null;
+  const target = message.replyTo ? await Message.findOne({ _id: message.replyTo, conversation: conversationId, hiddenFor: mongoose.trusted({ $ne: viewerId }) }).lean() : null;
+  return messageItem(message, viewerId, message.replyTo ? replyView(target) ?? { id: String(message.replyTo), from: "", text: "", kind: null, deleted: true } : null);
 }

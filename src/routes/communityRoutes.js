@@ -4,6 +4,7 @@ import { verifyCsrf } from "../middleware/csrf.js";
 import { chatReadLimiter, chatRequestLimiter, chatSendLimiter } from "../middleware/rateLimit.js";
 import { validate } from "../middleware/validate.js";
 import {
+  conversationActionSchema, blockSchema, editMessageSchema, deleteMessageSchema, reactMessageSchema,
   conversationsSchema,
   markReadSchema,
   messagesSchema,
@@ -67,3 +68,11 @@ communityRoutes.post(
   validate(markReadSchema),
   communityController.markRead
 );
+
+for (const [path, schema, handler] of [
+  ["/message/edit", editMessageSchema, communityController.editMessage],
+  ["/message/delete", deleteMessageSchema, communityController.deleteMessage],
+  ["/message/react", reactMessageSchema, communityController.reactToMessage],
+  ["/clear", conversationActionSchema, communityController.clearChat],
+  ["/block", blockSchema, communityController.blockChat],
+]) communityRoutes.post(path, verifyCsrf, chatSendLimiter, validate(schema), handler);

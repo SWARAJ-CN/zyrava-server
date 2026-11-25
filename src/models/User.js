@@ -17,6 +17,7 @@ const userSchema = new mongoose.Schema(
       maxlength: 16,
       index: { unique: true, sparse: true },
     },
+    avatar: { type: mongoose.Schema.Types.Mixed, default: null },
     authVersion: { type: Number, default: 0 },
     passwordHash: { type: String, required: true, select: false },
     customization: { type: appliedCustomizationSchema, default: null },

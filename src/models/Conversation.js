@@ -16,6 +16,7 @@ const conversationSchema = new mongoose.Schema(
         message: "A conversation has exactly two members.",
       },
     },
+    blockedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
     lastMessageText: { type: String, default: "", maxlength: 2000 },
     lastMessageFrom: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     lastMessageAt: { type: Date, default: Date.now, index: true },

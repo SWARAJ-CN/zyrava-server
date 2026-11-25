@@ -68,14 +68,23 @@ export const sendMessageSchema = bodyOnly(
       text: z
         .string()
         .trim()
-        .min(1, "Write a message first.")
+
         .max(MAX_MESSAGE, `Messages are up to ${MAX_MESSAGE} characters.`),
       /** The sender's optimistic id, echoed back so the tab can de-duplicate. */
+      attachmentId: idSchema.optional(),
+      replyTo: idSchema.optional(),
       clientId: z.string().trim().max(64).optional().default(""),
     })
-    .strict()
+    .strict().refine(value => value.text.length > 0 || !!value.attachmentId, "Write a message or attach a file.")
 );
 
 export const markReadSchema = bodyOnly(
   z.object({ conversationId: idSchema, messageIds: z.array(idSchema).min(1).max(100).optional() }).strict()
 );
+
+export const conversationActionSchema = bodyOnly(z.object({ conversationId: idSchema }).strict());
+export const blockSchema = bodyOnly(z.object({ conversationId: idSchema, blocked: z.boolean() }).strict());
+export const editMessageSchema = bodyOnly(z.object({ conversationId: idSchema, messageId: idSchema, text: z.string().trim().min(1).max(MAX_MESSAGE) }).strict());
+export const deleteMessageSchema = bodyOnly(z.object({ conversationId: idSchema, messageId: idSchema, scope: z.enum(["me", "everyone"]) }).strict());
+export const REACTIONS = ["❤️", "😂", "😮", "👍"];
+export const reactMessageSchema = bodyOnly(z.object({ conversationId: idSchema, messageId: idSchema, emoji: z.enum(REACTIONS).nullable() }).strict());

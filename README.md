@@ -217,3 +217,57 @@ This is strictly a presentation setting: `accountExperience()` and community exc
 - Admin-only `GET /api/admin/appearance` and `POST /api/admin/appearance` with `{ "vimithaThemeEnabled": true | false }`: saved state plus the administrator email and update time.
 
 Responses use `Cache-Control: no-store`. Relevant visible clients check every five seconds and on focus; initial loading/login personalization waits for server confirmation rather than trusting a stale local hint. A temporary failure keeps the last confirmed state; network recovery is required to receive newer settings. Deploy the backend, admin client and web client together (the web client adds the same-origin appearance rewrite).
+
+## Chat media and profile photos
+
+Set `CLOUDINARY_URL` in the backend environment (use `.env` locally and the
+Render service's Environment settings in production). The frontend needs no
+Cloudinary secret or unsigned upload preset. Deploy both the backend and web
+client for the new `/api/media/*` and `/api/profile/*` routes.
+
+- Accepted chat participants can send one image, video, or audio attachment,
+  with an optional caption. Chat assets use authenticated Cloudinary delivery.
+- Uploads go directly to Cloudinary with an owner-scoped, signed upload grant;
+  the backend verifies actual Cloudinary metadata before publishing the media.
+  This keeps large files out of Vercel and Render request buffers.
+- Previews stay local until **Confirm & send**. Voice messages support hold,
+  slide left to cancel, slide up to lock, and tap for hands-free recording.
+  Releasing or stopping opens the preview; nothing uploads automatically.
+- Limits: profile images 5 MiB; chat audio/video 100 MB (100,000,000 bytes).
+  The configured Cloudinary account limits images to 10 MiB. Chat selections
+  can be up to 100 MB: oversized still JPEG/PNG/WebP files are resized to at
+  most 2400px and compressed locally after confirmation. Oversized animated
+  images and formats that cannot be safely converted receive a limit error.
+  The server checks actual Cloudinary metadata before accepting media.
+- Images use signed `f_auto,q_auto` delivery URLs. Chat images are limited to
+  1200px; profile photos use a 320px automatic square crop. These URLs must not
+  be transformed again by a client image helper, which would invalidate the
+  signature. Videos use native controls; audio uses the custom HeroUI player.
+  Remote media does not autoplay or preload.
+- Profile photos persist on the account and appear in chat and the sidebar.
+- Unsent, canceled and replaced assets are cleaned up after the upload signature
+  has expired plus a one-day grace period. Cleanup runs hourly while the backend
+  is awake and on startup. Run `npm run media:cleanup` to trigger it manually.
+
+`node --test tests/media-sharing.test.js` covers upload validation, ownership,
+message persistence, retry behavior, optimized URLs, and cancellation cleanup.
+
+## Chat controls
+
+- The chat header menu offers Block/Unblock and Clear chat, with confirmation.
+  Blocking prevents sends, media grants and typing in either direction; each
+  participant can remove only their own block. History remains readable.
+- Clear chat and Delete for me persist `hiddenFor` on messages. They change
+  only that account's history, previews and unread count; newer arrivals remain.
+- Long press, right click, or the message options button opens Reply, four
+  reactions (❤️ 😂 😮 👍), Delete for me, and sender-only Delete for everyone.
+  Own text/captions can be edited for 20 minutes, enforced atomically by the API.
+- Replies reference a message in the same authorized conversation. Deleted or
+  hidden targets cannot leak through reply excerpts. Deleted-for-everyone media
+  is released to the normal Cloudinary cleanup job.
+- Mutations broadcast to the authorized participants/account tabs; revisions
+  protect edited messages from older HTTP/socket responses. Refresh reads the
+  visible message page again so offline clears/deletes are reflected.
+
+`node --test tests/chat-actions.test.js` exercises permissions, edit deadlines,
+reactions, replies, private deletion/clearing, blocks, and 100 MB media limits.

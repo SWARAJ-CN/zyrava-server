@@ -53,6 +53,7 @@ function database(t) {
   t.mock.method(ChatRequest,'find',filter=>query(requests.filter(r=>matches(r,filter))));
   t.mock.method(ChatRequest,'countDocuments',async filter=>requests.filter(r=>matches(r,filter)).length);
   t.mock.method(Message,'aggregate',async()=>[]);
+  t.mock.method(Message,'findOne',()=>query(null));
   t.mock.method(Message,'countDocuments',async()=>0);
 }
 

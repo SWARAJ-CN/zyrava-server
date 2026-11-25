@@ -8,7 +8,12 @@ import { adminRoutes } from "../admin/routes/index.js";
 
 import { customizationRoutes } from "./customizationRoutes.js";
 
+import { mediaRoutes } from "./mediaRoutes.js";
+import { profileRoutes } from "./profileRoutes.js";
+
 export const routes = Router();
+routes.use("/media", mediaRoutes);
+routes.use("/profile", profileRoutes);
 
 routes.use("/appearance", appearanceRoutes);
 routes.use("/auth", authRoutes);

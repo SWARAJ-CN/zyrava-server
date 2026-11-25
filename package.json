@@ -9,13 +9,15 @@
     "test": "node --test tests/*.test.js",
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
-    "check": "node --check src/server.js"
+    "check": "node --check src/server.js",
+    "media:cleanup": "node scripts/cleanup-media.js"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
+    "cloudinary": "^2.11.0",
     "compression": "^1.7.4",
     "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",

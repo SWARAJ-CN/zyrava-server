@@ -1,5 +1,7 @@
 import { asyncHandler } from "../utils/http.js";
 import * as community from "../services/communityService.js";
+import * as actions from "../services/chatActions.js";
+import { emitToUsers, emitToUser } from "../realtime/rooms.js";
 import * as push from "../realtime/emit.js";
 
 /**
@@ -64,8 +66,8 @@ export const respondRequest = asyncHandler(async (req, res) => {
 });
 
 export const sendMessage = asyncHandler(async (req, res) => {
-  const { conversationId, text, clientId } = req.valid.body;
-  const result = await community.sendMessage(req.userId, conversationId, text, clientId);
+  const { conversationId, text, clientId, attachmentId, replyTo } = req.valid.body;
+  const result = await community.sendMessage(req.userId, conversationId, text, clientId, attachmentId, replyTo);
 
   if (!result.duplicate) {
     await push.messageDelivered(req.userId, result.memberIds, result.message);
@@ -81,4 +83,30 @@ export const markRead = asyncHandler(async (req, res) => {
   const memberIds = await community.conversationAudience(conversationId);
   push.conversationRead(memberIds, conversationId, req.userId, result);
   res.json(result);
+});
+
+const messageAction = handler => asyncHandler(async (req, res) => {
+  const result = await handler(req.userId, req.valid.body);
+  if (result.removed) emitToUser(req.userId, "message:removed", { conversationId: result.conversationId, messageId: result.messageId });
+  else for (const memberId of result.memberIds) {
+    const message = await community.messageViewFor(memberId, result.conversationId, result.message.id);
+    if (message) emitToUser(memberId, "message:changed", { message });
+  }
+  await push.conversationUpdated(result.memberIds, result.conversationId);
+  res.json(result.removed ? { removed: true, messageId: result.messageId } : { message: result.message });
+});
+export const editMessage = messageAction(actions.editMessage);
+export const deleteMessage = messageAction(actions.deleteMessage);
+export const reactToMessage = messageAction(actions.reactToMessage);
+export const clearChat = asyncHandler(async (req, res) => {
+  const result = await actions.clearChat(req.userId, req.valid.body.conversationId);
+  emitToUser(req.userId, "conversation:cleared", result);
+  await push.conversationUpdated([req.userId], result.conversationId);
+  res.json(result);
+});
+export const blockChat = asyncHandler(async (req, res) => {
+  const result = await actions.blockChat(req.userId, req.valid.body.conversationId, req.valid.body.blocked);
+  emitToUsers(result.memberIds, "typing", { conversationId: result.conversationId, userId: req.userId, isTyping: false });
+  await push.conversationUpdated(result.memberIds, result.conversationId);
+  res.json({ conversation: await community.conversationSummaryFor(req.userId, result.conversationId) });
 });

@@ -1,6 +1,6 @@
 import { broadcastAll, emitToUser, emitToUsers } from "./rooms.js";
 import {
-  conversationSummaryFor,
+  conversationSummaryFor, messageViewFor,
   personView,
 } from "../services/communityService.js";
 import { isOnline, onlineUserIds } from "./presence.js";
@@ -63,9 +63,8 @@ export async function conversationOpened(memberIds, conversationId) {
 
 export async function messageDelivered(senderId, memberIds, message) {
   for (const memberId of memberIds) {
-    emitToUser(memberId, "message:new", {
-      message: { ...message, mine: asId(memberId) === asId(senderId) },
-    });
+    const view = message.reply ? await messageViewFor(memberId, message.conversationId, message.id) : { ...message, mine: asId(memberId) === asId(senderId) };
+    if (view) emitToUser(memberId, "message:new", { message: view });
   }
 }
 
